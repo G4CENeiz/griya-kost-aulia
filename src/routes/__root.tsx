@@ -28,7 +28,22 @@ export const Route = createRootRoute({
     ],
   }),
   shellComponent: RootDocument,
+  notFoundComponent: NotFound,
 })
+
+function NotFound() {
+  return (
+    <div className="bg-background text-foreground flex min-h-screen flex-col items-center justify-center gap-3">
+      <h1 className="text-2xl font-semibold">Halaman tidak ditemukan</h1>
+      <p className="text-muted-foreground text-sm">
+        Alamat ini tidak ada atau halamannya belum diterbitkan.
+      </p>
+      <a href="/" className="text-sm underline">
+        Kembali ke beranda
+      </a>
+    </div>
+  )
+}
 
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (

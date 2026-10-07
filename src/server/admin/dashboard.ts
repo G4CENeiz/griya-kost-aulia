@@ -61,13 +61,13 @@ export const getDashboard = createServerFn({ method: 'GET' }).handler(
 
     const unpaid = charges
       .filter((charge) => charge.balance > 0)
-      .sort((left, right) => left.dueDate.localeCompare(right.dueDate))
+      .toSorted((left, right) => left.dueDate.localeCompare(right.dueDate))
 
     return {
       rooms: { total: rooms.length, byStatus },
       availability: [...availabilityByType.entries()]
         .map(([roomTypeName, entry]) => ({ roomTypeName, ...entry }))
-        .sort((left, right) => left.roomTypeName.localeCompare(right.roomTypeName)),
+        .toSorted((left, right) => left.roomTypeName.localeCompare(right.roomTypeName)),
       outstanding: {
         total: unpaid.reduce((sum, charge) => sum + charge.balance, 0),
         count: unpaid.length,
