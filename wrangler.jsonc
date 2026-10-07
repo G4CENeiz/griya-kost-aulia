@@ -1,0 +1,28 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "griya-kost-aulia",
+  "main": "@tanstack/react-start/server-entry",
+  "compatibility_date": "2025-09-02",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true
+  },
+  // The bindings below point at resources that do not exist yet. Local
+  // development never contacts Cloudflare, so the placeholder id is enough for
+  // `pnpm dev` and for local migrations. Replace the id only when the owner
+  // approves the creation of the real D1 database.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "griya-kost-aulia-db",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "MEDIA",
+      "bucket_name": "griya-kost-aulia-media"
+    }
+  ]
+}
