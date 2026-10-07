@@ -18,6 +18,13 @@ function AdminLayout() {
           </Link>
           <nav className="text-muted-foreground flex flex-wrap gap-4 text-sm">
             <Link
+              to="/admin/kamar"
+              className="hover:text-foreground"
+              activeProps={{ className: 'text-foreground font-medium' }}
+            >
+              Kamar
+            </Link>
+            <Link
               to="/admin/tipe-kamar"
               className="hover:text-foreground"
               activeProps={{ className: 'text-foreground font-medium' }}
