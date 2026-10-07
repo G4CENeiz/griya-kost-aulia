@@ -12,7 +12,7 @@ function AdminLayout() {
   return (
     <div className="bg-background text-foreground min-h-screen">
       <header className="border-b">
-        <div className="mx-auto flex max-w-4xl flex-wrap items-center justify-between gap-4 px-6 py-4">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-6 py-4">
           <Link to="/admin/pengaturan" className="font-semibold">
             Griya Kost Aulia
           </Link>
@@ -32,6 +32,13 @@ function AdminLayout() {
               Tipe Kamar
             </Link>
             <Link
+              to="/admin/penghuni"
+              className="hover:text-foreground"
+              activeProps={{ className: 'text-foreground font-medium' }}
+            >
+              Penghuni
+            </Link>
+            <Link
               to="/admin/pengaturan"
               className="hover:text-foreground"
               activeProps={{ className: 'text-foreground font-medium' }}
@@ -41,7 +48,7 @@ function AdminLayout() {
           </nav>
         </div>
       </header>
-      <main className="mx-auto max-w-4xl px-6 py-8">
+      <main className="mx-auto max-w-6xl px-6 py-8">
         <Outlet />
       </main>
     </div>
