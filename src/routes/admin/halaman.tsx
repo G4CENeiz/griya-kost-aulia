@@ -3,6 +3,7 @@ import { useServerFn } from '@tanstack/react-start'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
+import { GalleryEditor } from '#/components/gallery-editor'
 import { PublicPageView } from '#/components/public-page'
 import {
   AlertDialog,
@@ -39,6 +40,7 @@ import {
 import { Textarea } from '#/components/ui/textarea'
 import { errorMessage } from '#/lib/errors'
 import { LANDING_SLUG } from '#/lib/pages'
+import { type GalleryImage, listGalleryImages } from '#/server/admin/gallery'
 import {
   type AdminPage,
   createPage,
@@ -177,6 +179,7 @@ function PageEditorDialog({
 }) {
   const loadPage = useServerFn(getPage)
   const loadPreview = useServerFn(getPagePreview)
+  const loadGallery = useServerFn(listGalleryImages)
   const save = useServerFn(updatePage)
   const [isSaving, setIsSaving] = useState(false)
   const [form, setForm] = useState<{
@@ -187,6 +190,7 @@ function PageEditorDialog({
     isPublished: boolean
   } | null>(null)
   const [preview, setPreview] = useState<PublicView | null>(null)
+  const [gallery, setGallery] = useState<GalleryImage[] | null>(null)
 
   useEffect(() => {
     let alive = true
@@ -195,10 +199,14 @@ function PageEditorDialog({
         // The preview follows the saved slug: only the landing page carries
         // the room list, and the landing page's slug cannot be changed.
         const page = await loadPage({ data: { id: pageId } })
-        const view = await loadPreview({ data: { slug: page.slug } })
+        const [view, images] = await Promise.all([
+          loadPreview({ data: { slug: page.slug } }),
+          loadGallery({ data: { pageId } }),
+        ])
         if (!alive) return
         setForm(page)
         setPreview(view)
+        setGallery(images)
       } catch (error) {
         toast.error(errorMessage(error, 'Halaman gagal dimuat.'))
       }
@@ -206,7 +214,7 @@ function PageEditorDialog({
     return () => {
       alive = false
     }
-  }, [pageId, loadPage, loadPreview])
+  }, [pageId, loadPage, loadPreview, loadGallery])
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -295,6 +303,10 @@ function PageEditorDialog({
                 />
                 <Label htmlFor="page-published">Terbitkan halaman ini</Label>
               </div>
+            </div>
+
+            <div className="mb-6">
+              {gallery ? <GalleryEditor pageId={form.id} initialImages={gallery} /> : null}
             </div>
 
             <DialogFooter className="mb-4">
