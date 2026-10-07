@@ -46,6 +46,13 @@ function AdminLayout() {
               Sewa
             </Link>
             <Link
+              to="/admin/tagihan"
+              className="hover:text-foreground"
+              activeProps={{ className: 'text-foreground font-medium' }}
+            >
+              Tagihan
+            </Link>
+            <Link
               to="/admin/pengaturan"
               className="hover:text-foreground"
               activeProps={{ className: 'text-foreground font-medium' }}
