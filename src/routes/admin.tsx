@@ -16,7 +16,14 @@ function AdminLayout() {
           <Link to="/admin/pengaturan" className="font-semibold">
             Griya Kost Aulia
           </Link>
-          <nav className="text-muted-foreground flex gap-4 text-sm">
+          <nav className="text-muted-foreground flex flex-wrap gap-4 text-sm">
+            <Link
+              to="/admin/tipe-kamar"
+              className="hover:text-foreground"
+              activeProps={{ className: 'text-foreground font-medium' }}
+            >
+              Tipe Kamar
+            </Link>
             <Link
               to="/admin/pengaturan"
               className="hover:text-foreground"
