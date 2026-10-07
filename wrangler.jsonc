@@ -7,6 +7,14 @@
   "observability": {
     "enabled": true,
   },
+  // Empty until the Cloudflare Access application exists. While they are empty
+  // the admin guard allows local development and denies every production
+  // request, so a deploy without an Access policy cannot serve the admin area
+  // (ADR-0017).
+  "vars": {
+    "ACCESS_TEAM_DOMAIN": "",
+    "ACCESS_AUD": "",
+  },
   // The bindings below point at resources that do not exist yet. Local
   // development never contacts Cloudflare, so the placeholder id is enough for
   // `pnpm dev` and for local migrations. Replace the id only when the owner
