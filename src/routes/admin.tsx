@@ -53,6 +53,13 @@ function AdminLayout() {
               Tagihan
             </Link>
             <Link
+              to="/admin/pembayaran"
+              className="hover:text-foreground"
+              activeProps={{ className: 'text-foreground font-medium' }}
+            >
+              Pembayaran
+            </Link>
+            <Link
               to="/admin/pengaturan"
               className="hover:text-foreground"
               activeProps={{ className: 'text-foreground font-medium' }}

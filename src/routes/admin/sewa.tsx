@@ -169,7 +169,7 @@ function TenanciesPage() {
                       </div>
                     </TableCell>
                     <TableCell className="text-right">
-                      <div className="flex flex-wrap justify-end gap-1">
+                      <div className="flex justify-end gap-1 whitespace-nowrap">
                         {tenancy.isActive ? (
                           <>
                             <Button
