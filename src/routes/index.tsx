@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 
-import { PublicPageView } from '#/components/public-page'
+import { HomeLayout } from '#/components/public/layouts'
 import { LANDING_SLUG } from '#/lib/pages'
 import { getPublicPage } from '#/server/public'
 
@@ -10,5 +10,5 @@ export const Route = createFileRoute('/')({
 })
 
 function LandingPage() {
-  return <PublicPageView view={Route.useLoaderData()} />
+  return <HomeLayout view={Route.useLoaderData()} />
 }

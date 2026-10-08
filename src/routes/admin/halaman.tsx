@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
 import { GalleryEditor } from '#/components/gallery-editor'
-import { PublicPageView } from '#/components/public-page'
+import { PublicRouteView } from '#/components/public/layouts'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -325,7 +325,7 @@ function PageEditorDialog({
               </p>
               <div className="max-h-[40rem] overflow-y-auto rounded-lg border">
                 {draft ? (
-                  <PublicPageView view={draft} />
+                  <PublicRouteView view={draft} />
                 ) : (
                   <p className="text-muted-foreground p-4 text-sm">Memuat pratinjau…</p>
                 )}

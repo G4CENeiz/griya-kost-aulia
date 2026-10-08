@@ -1,11 +1,12 @@
 import { createFileRoute, notFound } from '@tanstack/react-router'
 
-import { PublicPageView } from '#/components/public-page'
+import { PublicRouteView } from '#/components/public/layouts'
 import { LANDING_SLUG } from '#/lib/pages'
 import { getPublicPage } from '#/server/public'
 
 /**
- * Every other public page: the same shell without the room list (ADR-0024).
+ * Any other page the owner adds. It gets the generic layout: title, prose,
+ * gallery, footer (ADR-0031).
  */
 export const Route = createFileRoute('/$slug')({
   component: SlugPage,
@@ -18,5 +19,5 @@ export const Route = createFileRoute('/$slug')({
 })
 
 function SlugPage() {
-  return <PublicPageView view={Route.useLoaderData()} />
+  return <PublicRouteView view={Route.useLoaderData()} />
 }
