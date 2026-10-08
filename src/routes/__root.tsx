@@ -38,7 +38,10 @@ function NotFound() {
       <p className="text-muted-foreground text-sm">
         Alamat ini tidak ada atau halamannya belum diterbitkan.
       </p>
-      <a href="/" className="text-sm underline">
+      <a
+        href="/"
+        className="text-muted-foreground hover:text-foreground text-sm underline underline-offset-4"
+      >
         Kembali ke beranda
       </a>
     </div>

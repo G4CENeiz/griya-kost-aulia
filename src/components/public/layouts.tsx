@@ -53,7 +53,11 @@ export function HomeLayout({ view }: { view: PublicView }) {
 
   return (
     <PublicShell view={view} current="home">
-      <Hero settings={view.settings} roomCount={view.rooms.length} />
+      <Hero
+        settings={view.settings}
+        availableCount={view.rooms.filter((room) => room.status === 'available').length}
+        image={view.images[0]}
+      />
       <FacilityStrip rooms={view.rooms} />
 
       {preview.length > 0 ? (
@@ -83,7 +87,7 @@ export function HomeLayout({ view }: { view: PublicView }) {
         </section>
       ) : null}
 
-      <Gallery images={view.images} />
+      <Gallery images={view.images} showPlaceholder />
     </PublicShell>
   )
 }
@@ -213,8 +217,6 @@ export function RoomsLayout({ view }: { view: PublicView }) {
           </div>
         )}
       </section>
-
-      <Gallery images={view.images} />
     </PublicShell>
   )
 }

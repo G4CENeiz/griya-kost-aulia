@@ -111,7 +111,15 @@ export function PublicFooter({ settings }: { settings: PublicSettings }) {
   )
 }
 
-export function Hero({ settings, roomCount }: { settings: PublicSettings; roomCount: number }) {
+export function Hero({
+  settings,
+  availableCount,
+  image,
+}: {
+  settings: PublicSettings
+  availableCount: number
+  image?: PublicImage
+}) {
   const [enquiry, setEnquiry] = useState(false)
 
   return (
@@ -132,12 +140,23 @@ export function Hero({ settings, roomCount }: { settings: PublicSettings; roomCo
               <a href="#kamar">Lihat kamar</a>
             </Button>
           </div>
+          <p className="text-muted-foreground text-sm">
+            {availableCount > 0
+              ? `${availableCount} kamar tersedia sekarang.`
+              : 'Belum ada kamar yang tersedia.'}
+          </p>
         </div>
-        <div className="bg-muted text-muted-foreground flex aspect-4/3 items-center justify-center rounded-xl border border-dashed text-sm">
-          {roomCount > 0
-            ? `${roomCount} kamar dikelola dari sini`
-            : 'Foto properti dari halaman Galeri'}
-        </div>
+        {image ? (
+          <img
+            src={`/media/${image.r2Key}`}
+            alt={image.alt}
+            className="aspect-4/3 w-full rounded-xl border object-cover"
+          />
+        ) : (
+          <div className="bg-muted text-muted-foreground flex aspect-4/3 items-center justify-center rounded-xl border border-dashed p-4 text-center text-sm">
+            Unggah foto properti dari menu Galeri, dan foto pertama tampil di sini.
+          </div>
+        )}
       </div>
       {enquiry ? <EnquiryDialog settings={settings} onClose={() => setEnquiry(false)} /> : null}
     </section>
@@ -199,7 +218,15 @@ export function RoomCard({ room }: { room: PublicRoom }) {
   )
 }
 
-export function Gallery({ images }: { images: PublicImage[] }) {
+export function Gallery({
+  images,
+  showPlaceholder = false,
+}: {
+  images: PublicImage[]
+  showPlaceholder?: boolean
+}) {
+  if (images.length === 0 && !showPlaceholder) return null
+
   return (
     <section className="mx-auto w-full max-w-6xl px-6 py-12">
       <h2 className="mb-4 text-2xl font-semibold tracking-tight">Galeri</h2>
@@ -340,6 +367,7 @@ export function EnquiryDialog({
               <Label htmlFor="enquiry-name">Nama</Label>
               <Input
                 id="enquiry-name"
+                placeholder="Nama lengkap"
                 value={form.name}
                 onChange={(event) => setForm({ ...form, name: event.target.value })}
                 required
