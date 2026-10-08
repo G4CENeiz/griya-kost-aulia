@@ -101,3 +101,54 @@ git -c credential.helper='!gh auth git-credential' push origin main
 With `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD` empty, the admin guard denies every
 request in production. The site fails closed. The admin area is therefore
 unusable, not open, until the Access layer exists.
+
+## Public site inventory — 2026-10-08
+
+The owner asked for a proper landing page, a room discovery page, a room
+viewing page, information pages, a Google Maps section on the landing, and
+"other stuff", and he asked for examples to choose from. This is the list. He
+names what he wants, and each page that is built carries real prose (ADR-0035).
+
+Landing page sections, in the order they would run:
+
+| Section | What it shows | State |
+|---|---|---|
+| Header | navigation and the WhatsApp call to action | built |
+| Hero | name, tagline, one photo, two buttons | built |
+| Facilities | the facilities the rooms actually offer | built |
+| Availability | the rooms with type, price, and status, and a link to the discovery page | asked for |
+| Room preview | three rooms with their own prices | built |
+| Prose | the owner's words | built |
+| Gallery | the page pictures, or placeholders | built |
+| Location | the address, an embedded Google map, and directions | asked for |
+| How to rent | ask, view the room, agree, pay, move in | example |
+| Price list | the price per room type, in one table | example |
+| House rules teaser | three rules, a link to Aturan | example |
+| FAQ teaser | the three most asked questions, a link to FAQ | example |
+| Neighbourhood | walking distance to campus, market, station | example |
+| Testimonials | words from current tenants | example |
+| Closing call to action | one band with the WhatsApp button | example |
+| Footer | address, map link, WhatsApp, bank details, quick links | built |
+
+Pages, beyond the six built:
+
+| Page | Address | What it shows | State |
+|---|---|---|---|
+| Daftar kamar with sorting and a price range | `/kamar` | the discovery page, richer | asked for |
+| Harga | `/harga` | the price list per room type and floor | example |
+| Fasilitas | `/fasilitas` | each facility, with a picture | example |
+| Lokasi | `/lokasi` | the map in full, landmarks, and directions | example |
+| Cara sewa | `/cara-sewa` | the steps, with what the tenant brings | example |
+| Galeri | `/galeri` | every picture on one page | example |
+| Tentang | `/tentang` | the property and the owner | example |
+| Kamar per tipe | `/kamar/tipe/<name>` | rooms grouped by type | example |
+| Peta kamar | `/peta-kamar` | the rooms as a plan of the building | example, needs a drawing |
+
+Ideas that are probably too much for a boarding house of this size, listed so
+they are answered rather than repeated: online booking with payment, a tenant
+login, a waiting list, a newsletter, and a news section.
+
+Map implementation, 2026-10-08: the legacy Google embed needs no key and
+geocodes the address. The supported Embed API needs a key and billing, which is
+the owner's decision. If he supplies a key, it goes in the environment and the
+section keeps its shape (ADR-0035).
