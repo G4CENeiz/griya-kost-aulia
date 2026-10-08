@@ -1,9 +1,10 @@
 # Griya Kost Aulia spec
 
 Status: settled. Rounds 1 to 7 of the interview are recorded in `docs/adr`. If
-this file and an ADR disagree, the ADR wins. All timestamps are integer epoch
-milliseconds in UTC, rendered for the Indonesian locale at the edge of the UI.
-UI copy is Indonesian. Every internal name is English (ADR-0003).
+this file and an ADR disagree, the ADR wins. An instant is an integer count of
+epoch milliseconds in UTC, rendered for the Indonesian locale at the edge of the
+UI. A calendar day is ISO `YYYY-MM-DD` text instead (ADR-0028). UI copy is
+Indonesian. Every internal name is English (ADR-0003).
 `docs/glossary.md` maps one to the other.
 
 ## Overview
@@ -61,17 +62,23 @@ The app serves one boarding house. It has three surfaces:
 
     pages ──< page_images
 
-## Public page layout
+## Public pages
 
-Fixed order, assembled by the app:
+The app owns each layout. The owner owns the words and the pictures. ADR-0031
+holds the layouts and the sections.
 
-1. Hero. Property name, tagline, and the WhatsApp button. From `settings`.
-2. Room list. Every room with its number, type, price, and status. From `rooms`.
-3. The Markdown body. From `pages.body_markdown`.
-4. Gallery. From `page_images`, or placeholder blocks when empty.
-5. Footer. Address, WhatsApp number, and bank details. From `settings`.
+| Page | Address | Carries |
+|---|---|---|
+| Beranda | `/` | hero, facility strip, room preview, prose, gallery, footer |
+| Kamar | `/kamar` | every room, with search and filters |
+| Kamar | `/kamar/<number>` | one room, its facilities, its status, and an enquiry that names it |
+| Aturan | `/aturan` | the house rules |
+| FAQ | `/faq` | the questions and their answers |
+| Kontak | `/kontak` | address, map, WhatsApp, bank details, enquiry form |
+| Any other | `/<slug>` | title, prose, gallery, footer |
 
-A second page gets the same shell without the room list.
+Every public page shares the header navigation and the contact footer. A page
+that is not published is a 404 for a visitor.
 
 ## Rules
 

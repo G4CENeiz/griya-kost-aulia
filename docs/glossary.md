@@ -41,3 +41,20 @@ table maps one to the other. Definitions are short and declarative.
 | Dasbor | dashboard | The admin home screen: room counts, charges due, unpaid charges, and recent payments. |
 | Ketersediaan | availability | The count of rooms with status `available`, grouped by room type. |
 | Pesan minat | enquiry | A visitor message from the public page, handed to WhatsApp. Never stored (ADR-0014). |
+
+## Pages and environments
+
+| UI label | Code name | Definition |
+|----------|-----------|------------|
+| Beranda | `home` | The landing page at `/`. It is the only page with the room preview. |
+| Daftar kamar | `rooms` | The public page that lists every room with search and filters. |
+| Kamar | `room` | The public page of one room, at `/kamar/<number>`. |
+| Aturan | `rules` | The house-rules page. |
+| FAQ | `faq` | The page of questions and answers. |
+| Kontak | `contact` | The page with the address, the map link, the bank details, and the enquiry form. |
+| Halaman lain | `page` | Any other page the owner adds at `/<slug>`. It gets the generic shell. |
+| Susunan | `layout` | The fixed arrangement of one public page. The app owns it; the owner cannot move a section. |
+| Pratinjau | preview | The real public route, rendered beside the editor with the unsaved values. |
+| Bilah samping | `sidebar` | The vertical navigation rail of the admin area. |
+| Lingkungan | `environment` | One Worker with its own database and bucket: staging or production. |
+| Pratinjau build | preview URL | The disposable address of a `dev` build. It holds none of the real records. |

@@ -25,6 +25,9 @@ tenancies, charges, payments, and receipts.
 
 ## Working agreement from the owner
 
+The standing rules for agents now live in `AGENTS.md`, which includes this
+agreement and everything the owner added later. Read that file first.
+
 These are the owner's words, given after the earlier attempt went wrong. They
 are binding.
 

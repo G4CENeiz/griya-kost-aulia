@@ -1,6 +1,6 @@
 # ADR 0021: Landing page sections
 
-- Status: Accepted
+- Status: Accepted, superseded in part by ADR-0031
 - Date: 2026-10-06
 
 ## Context

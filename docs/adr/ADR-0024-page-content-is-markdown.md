@@ -1,6 +1,6 @@
 # ADR 0024: Page content is one Markdown body
 
-- Status: Accepted
+- Status: Accepted, superseded in part by ADR-0031 and ADR-0033
 - Date: 2026-10-06
 
 ## Context
