@@ -32,7 +32,9 @@ for "take this out of my lists".
   guards: a record that a live row still references is refused, with the count
   in the message. For a gallery image it also removes the R2 object.
 - Unique values are unique among live rows only, so the number, name, or slug
-  of a deleted record may be used again.
+  of a deleted record may be used again. **Superseded by ADR-0037**: a deleted
+  record keeps its unique value until it is purged, because freeing it needs a
+  table rebuild that D1 cannot run.
 - The deleted records of a screen appear on that same screen in a trash
   section, so they are found where they were deleted. There is no global trash
   screen.
