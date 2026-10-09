@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useRouter } from '@tanstack/react-router'
 import { useServerFn } from '@tanstack/react-start'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
 import { type ChargeOption, METHOD_LABEL, PaymentDialog } from '#/components/payment-dialog'
@@ -17,6 +17,14 @@ import {
 import { Badge } from '#/components/ui/badge'
 import { Button } from '#/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '#/components/ui/dialog'
 import { Label } from '#/components/ui/label'
 import {
   Table,
@@ -30,7 +38,14 @@ import { Textarea } from '#/components/ui/textarea'
 import { errorMessage } from '#/lib/errors'
 import { formatDay, formatRupiah } from '#/lib/format'
 import { listCharges } from '#/server/admin/charges'
-import { type Payment, listPayments, voidPayment } from '#/server/admin/payments'
+import {
+  type Payment,
+  type PaymentDetail,
+  getPayment,
+  listPayments,
+  purgePayment,
+  voidPayment,
+} from '#/server/admin/payments'
 
 export const Route = createFileRoute('/admin/pembayaran')({
   component: PaymentsPage,
@@ -40,12 +55,21 @@ export const Route = createFileRoute('/admin/pembayaran')({
   }),
 })
 
-type OpenDialog = { kind: 'pay' } | { kind: 'void'; payment: Payment } | null
+type OpenDialog =
+  | { kind: 'pay' }
+  | { kind: 'view'; payment: Payment }
+  | { kind: 'void'; payment: Payment }
+  | { kind: 'purge'; payment: Payment }
+  | null
 
 function PaymentsPage() {
   const { payments, charges } = Route.useLoaderData()
   const router = useRouter()
   const [dialog, setDialog] = useState<OpenDialog>(null)
+  const refresh = async () => {
+    setDialog(null)
+    await router.invalidate()
+  }
 
   const unpaid: ChargeOption[] = charges
     .filter((charge) => charge.balance > 0)
@@ -68,7 +92,8 @@ function PaymentsPage() {
         <div>
           <h1 className="text-2xl font-semibold">Pembayaran</h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            Pembayaran tidak pernah diubah atau dihapus, hanya dibatalkan dengan alasan.
+            Pembayaran tidak pernah diubah. Membatalkan dengan alasan adalah cara menyembunyikannya;
+            baris yang sudah dibatalkan bisa dihapus permanen.
           </p>
         </div>
         <Button disabled={unpaid.length === 0} onClick={() => setDialog({ kind: 'pay' })}>
@@ -137,18 +162,37 @@ function PaymentsPage() {
                         )}
                       </TableCell>
                       <TableCell className="text-right">
-                        {voided ? (
-                          <Badge variant="outline">Batal</Badge>
-                        ) : (
+                        <div className="flex justify-end gap-1 whitespace-nowrap">
                           <Button
                             size="sm"
-                            variant="ghost"
-                            className="text-destructive hover:text-destructive"
-                            onClick={() => setDialog({ kind: 'void', payment })}
+                            variant="secondary"
+                            onClick={() => setDialog({ kind: 'view', payment })}
                           >
-                            Batalkan
+                            Lihat
                           </Button>
-                        )}
+                          {voided ? (
+                            <>
+                              <Badge variant="outline">Batal</Badge>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="text-destructive hover:text-destructive"
+                                onClick={() => setDialog({ kind: 'purge', payment })}
+                              >
+                                Hapus permanen
+                              </Button>
+                            </>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="text-destructive hover:text-destructive"
+                              onClick={() => setDialog({ kind: 'void', payment })}
+                            >
+                              Batalkan
+                            </Button>
+                          )}
+                        </div>
                       </TableCell>
                     </TableRow>
                   )
@@ -170,17 +214,151 @@ function PaymentsPage() {
         />
       ) : null}
 
+      {dialog?.kind === 'view' ? (
+        <PaymentDetailDialog payment={dialog.payment} onClose={() => setDialog(null)} />
+      ) : null}
+
       {dialog?.kind === 'void' ? (
         <VoidPaymentDialog
           payment={dialog.payment}
           onClose={() => setDialog(null)}
-          onVoided={async () => {
-            setDialog(null)
-            await router.invalidate()
-          }}
+          onVoided={refresh}
+        />
+      ) : null}
+
+      {dialog?.kind === 'purge' ? (
+        <PurgePaymentDialog
+          payment={dialog.payment}
+          onClose={() => setDialog(null)}
+          onPurged={refresh}
         />
       ) : null}
     </div>
+  )
+}
+
+/** The individual view: the payment, its charge, and its receipt when one exists. */
+function PaymentDetailDialog({ payment, onClose }: { payment: Payment; onClose: () => void }) {
+  const load = useServerFn(getPayment)
+  const [detail, setDetail] = useState<PaymentDetail | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    void (async () => {
+      try {
+        const result = await load({ data: { paymentId: payment.id } })
+        if (alive) setDetail(result)
+      } catch (error) {
+        toast.error(errorMessage(error, 'Pembayaran gagal dimuat.'))
+      }
+    })()
+    return () => {
+      alive = false
+    }
+  }, [load, payment.id])
+
+  return (
+    <Dialog open onOpenChange={(open) => (open ? undefined : onClose())}>
+      <DialogContent className="max-w-xl">
+        <DialogHeader>
+          <DialogTitle>Pembayaran {formatRupiah(payment.amount)}</DialogTitle>
+          <DialogDescription>
+            Kamar {payment.roomNumber} · {payment.tenantName} · {METHOD_LABEL[payment.method]}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-1 py-4 text-sm">
+          <p>
+            <span className="text-muted-foreground">Tanggal: </span>
+            {formatDay(payment.date)}
+          </p>
+          <p>
+            <span className="text-muted-foreground">Periode: </span>
+            {formatDay(payment.periodStart)} – {formatDay(payment.periodEnd)}
+          </p>
+          <p>
+            <span className="text-muted-foreground">Catatan: </span>
+            {payment.note ?? '—'}
+          </p>
+          <p>
+            <span className="text-muted-foreground">Status: </span>
+            {payment.voidedAt === null ? (
+              'Sah'
+            ) : (
+              <>
+                <Badge variant="outline">Batal</Badge> {payment.voidReason ?? '—'}
+              </>
+            )}
+          </p>
+          <p>
+            <span className="text-muted-foreground">Kuitansi: </span>
+            {!detail
+              ? 'Memuat…'
+              : detail.receipt
+                ? `Nomor ${detail.receipt.number}`
+                : 'Belum dibuat'}
+          </p>
+        </div>
+
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={onClose}>
+            Tutup
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function PurgePaymentDialog({
+  payment,
+  onClose,
+  onPurged,
+}: {
+  payment: Payment
+  onClose: () => void
+  onPurged: () => Promise<void>
+}) {
+  const remove = useServerFn(purgePayment)
+  const [isSaving, setIsSaving] = useState(false)
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setIsSaving(true)
+    try {
+      await remove({ data: { paymentId: payment.id } })
+      toast.success('Pembayaran dihapus permanen.')
+      await onPurged()
+    } catch (error) {
+      toast.error(errorMessage(error, 'Pembayaran gagal dihapus permanen.'))
+      onClose()
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  return (
+    <AlertDialog open onOpenChange={(open) => (open ? undefined : onClose())}>
+      <AlertDialogContent>
+        <form onSubmit={handleSubmit}>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Hapus permanen pembayaran {formatRupiah(payment.amount)}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Barisnya dibuang dan tidak bisa dipulihkan. Sisa tagihan dihitung ulang tanpa baris
+              ini. Pembayaran yang punya kuitansi ditolak.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Batal</AlertDialogCancel>
+            <AlertDialogAction type="submit" disabled={isSaving}>
+              {isSaving ? 'Menghapus…' : 'Hapus permanen'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </form>
+      </AlertDialogContent>
+    </AlertDialog>
   )
 }
 

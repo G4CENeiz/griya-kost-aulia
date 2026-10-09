@@ -169,14 +169,17 @@ export const getTenant = createServerFn({ method: 'GET' })
     const { results } = await getDb()
       .prepare(
         `SELECT te.id, r.number AS room_number, te.start_date, te.move_out_date,
-                (SELECT COUNT(*) FROM charges c WHERE c.tenancy_id = te.id)
+                (SELECT COUNT(*) FROM charges c
+                  WHERE c.tenancy_id = te.id AND c.deleted_at IS NULL)
                   AS charge_count,
                 (SELECT COALESCE(SUM(c.amount), 0) FROM charges c
-                  WHERE c.tenancy_id = te.id) AS billed_amount,
+                  WHERE c.tenancy_id = te.id AND c.deleted_at IS NULL)
+                  AS billed_amount,
                 (SELECT COALESCE(SUM(p.amount), 0)
                    FROM payments p
                    JOIN charges c ON c.id = p.charge_id
-                  WHERE c.tenancy_id = te.id AND p.voided_at IS NULL)
+                  WHERE c.tenancy_id = te.id AND c.deleted_at IS NULL
+                    AND p.voided_at IS NULL)
                   AS paid_amount
            FROM tenancies te
            JOIN rooms r ON r.id = te.room_id

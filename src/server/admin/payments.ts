@@ -4,7 +4,7 @@ import { isIsoDay } from '#/lib/dates'
 import { changedNothing, getDb } from '#/server/db'
 import { InputError, optionalText, readField, rowId } from '#/server/validation'
 
-/** Pembayaran: money received against one charge. Never edited, never deleted (ADR-0022). */
+/** Pembayaran: money received against one charge. Never edited (ADR-0022). */
 export type Payment = {
   id: number
   chargeId: number
@@ -35,6 +35,12 @@ type PaymentRow = {
   void_reason: string | null
 }
 
+/** The individual view: the payment and the receipt that was issued for it. */
+export type PaymentDetail = {
+  payment: Payment
+  receipt: { number: string; issuedAt: number; renderedAt: number | null } | null
+}
+
 export type PaymentInput = {
   chargeId: number
   amount: number
@@ -56,6 +62,7 @@ const SELECT_PAYMENTS = `
   JOIN tenancies te ON te.id = c.tenancy_id
   JOIN rooms r ON r.id = te.room_id
   JOIN tenants tn ON tn.id = te.tenant_id
+  WHERE c.deleted_at IS NULL
   ORDER BY p.date DESC, p.id DESC
 `
 
@@ -82,6 +89,49 @@ export const listPayments = createServerFn({ method: 'GET' }).handler(
     return (results ?? []).map(toPayment)
   },
 )
+
+export const getPayment = createServerFn({ method: 'GET' })
+  .validator((input: unknown) => ({
+    paymentId: rowId(readField(input, 'paymentId'), 'Pembayaran'),
+  }))
+  .handler(async ({ data }): Promise<PaymentDetail> => {
+    const db = getDb()
+    const row = await db
+      .prepare(
+        `SELECT p.id, p.charge_id, p.amount, p.date, p.method, p.note,
+                p.voided_at, p.void_reason,
+                c.period_start, c.period_end,
+                r.number AS room_number, tn.name AS tenant_name
+           FROM payments p
+           JOIN charges c ON c.id = p.charge_id
+           JOIN tenancies te ON te.id = c.tenancy_id
+           JOIN rooms r ON r.id = te.room_id
+           JOIN tenants tn ON tn.id = te.tenant_id
+          WHERE p.id = ?1`,
+      )
+      .bind(data.paymentId)
+      .first<PaymentRow>()
+    if (!row) throw new InputError('Pembayaran tidak ditemukan.')
+
+    const receipt = await db
+      .prepare(
+        `SELECT number, issued_at, rendered_at FROM receipts
+          WHERE payment_id = ?1`,
+      )
+      .bind(data.paymentId)
+      .first<{ number: string; issued_at: number; rendered_at: number | null }>()
+
+    return {
+      payment: toPayment(row),
+      receipt: receipt
+        ? {
+            number: receipt.number,
+            issuedAt: receipt.issued_at,
+            renderedAt: receipt.rendered_at,
+          }
+        : null,
+    }
+  })
 
 export const createPayment = createServerFn({ method: 'POST' })
   .validator((input: unknown): PaymentInput => {
@@ -115,7 +165,7 @@ export const createPayment = createServerFn({ method: 'POST' })
                   WHERE p.charge_id = c.id AND p.voided_at IS NULL) AS paid_amount,
                 (SELECT COUNT(*) FROM payments p
                   WHERE p.charge_id = c.id AND p.voided_at IS NULL) AS payment_count
-           FROM charges c WHERE c.id = ?1`,
+           FROM charges c WHERE c.id = ?1 AND c.deleted_at IS NULL`,
       )
       .bind(data.chargeId)
       .first<{ amount: number; paid_amount: number; payment_count: number }>()
@@ -172,6 +222,42 @@ export const voidPayment = createServerFn({ method: 'POST' })
       .run()
     if (changedNothing(result.meta)) {
       throw new InputError('Pembayaran tidak ditemukan atau sudah dibatalkan.')
+    }
+    return { id: data.paymentId }
+  })
+
+/**
+ * Removing a voided payment for good (ADR-0036). The void is the soft delete of
+ * a payment, so this is the second act, and it needs the payment to be voided
+ * first. A receipt still refers to the payment, so its presence refuses the
+ * removal until the receipt is dealt with.
+ */
+export const purgePayment = createServerFn({ method: 'POST' })
+  .validator((input: unknown) => ({
+    paymentId: rowId(readField(input, 'paymentId'), 'Pembayaran'),
+  }))
+  .handler(async ({ data }): Promise<{ id: number }> => {
+    const db = getDb()
+    const payment = await db
+      .prepare('SELECT voided_at FROM payments WHERE id = ?1')
+      .bind(data.paymentId)
+      .first<{ voided_at: number | null }>()
+    if (!payment) throw new InputError('Pembayaran tidak ditemukan.')
+    if (payment.voided_at === null) {
+      throw new InputError('Batalkan pembayaran ini dulu sebelum menghapus permanen.')
+    }
+
+    const receipt = await db
+      .prepare('SELECT COUNT(*) AS total FROM receipts WHERE payment_id = ?1')
+      .bind(data.paymentId)
+      .first<{ total: number }>()
+    if ((receipt?.total ?? 0) > 0) {
+      throw new InputError('Pembayaran ini punya kuitansi, jadi tidak bisa dihapus permanen.')
+    }
+
+    const result = await db.prepare('DELETE FROM payments WHERE id = ?1').bind(data.paymentId).run()
+    if (changedNothing(result.meta)) {
+      throw new InputError('Pembayaran tidak ditemukan.')
     }
     return { id: data.paymentId }
   })

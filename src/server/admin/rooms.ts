@@ -186,11 +186,13 @@ export const getRoom = createServerFn({ method: 'GET' })
       .prepare(
         `SELECT te.id, tn.name AS tenant_name, te.start_date, te.move_out_date,
                 (SELECT COALESCE(SUM(c.amount), 0) FROM charges c
-                  WHERE c.tenancy_id = te.id) AS billed_amount,
+                  WHERE c.tenancy_id = te.id AND c.deleted_at IS NULL)
+                  AS billed_amount,
                 (SELECT COALESCE(SUM(p.amount), 0)
                    FROM payments p
                    JOIN charges c ON c.id = p.charge_id
-                  WHERE c.tenancy_id = te.id AND p.voided_at IS NULL)
+                  WHERE c.tenancy_id = te.id AND c.deleted_at IS NULL
+                    AND p.voided_at IS NULL)
                   AS paid_amount
            FROM tenancies te
            JOIN tenants tn ON tn.id = te.tenant_id

@@ -56,16 +56,19 @@ const SELECT_TENANCIES = `
   SELECT te.id, te.room_id, te.tenant_id, te.start_date, te.move_out_date,
          r.number AS room_number, tn.name AS tenant_name,
          tn.whatsapp_number,
-         (SELECT COUNT(*) FROM charges c WHERE c.tenancy_id = te.id)
+         (SELECT COUNT(*) FROM charges c
+           WHERE c.tenancy_id = te.id AND c.deleted_at IS NULL)
            AS charge_count,
-         (SELECT MAX(c.period_end) FROM charges c WHERE c.tenancy_id = te.id)
+         (SELECT MAX(c.period_end) FROM charges c
+           WHERE c.tenancy_id = te.id AND c.deleted_at IS NULL)
            AS last_period_end,
          (SELECT COALESCE(SUM(c.amount), 0) FROM charges c
-           WHERE c.tenancy_id = te.id) AS billed_amount,
+           WHERE c.tenancy_id = te.id AND c.deleted_at IS NULL) AS billed_amount,
          (SELECT COALESCE(SUM(p.amount), 0)
             FROM payments p
             JOIN charges c ON c.id = p.charge_id
-           WHERE c.tenancy_id = te.id AND p.voided_at IS NULL) AS paid_amount
+           WHERE c.tenancy_id = te.id AND c.deleted_at IS NULL
+             AND p.voided_at IS NULL) AS paid_amount
   FROM tenancies te
   JOIN rooms r ON r.id = te.room_id
   JOIN tenants tn ON tn.id = te.tenant_id
@@ -266,7 +269,10 @@ export const renewTenancy = createServerFn({ method: 'POST' })
     }
 
     const last = await db
-      .prepare('SELECT MAX(period_end) AS period_end FROM charges WHERE tenancy_id = ?1')
+      .prepare(
+        `SELECT MAX(period_end) AS period_end FROM charges
+          WHERE tenancy_id = ?1 AND deleted_at IS NULL`,
+      )
       .bind(data.tenancyId)
       .first<{ period_end: string | null }>()
 
@@ -443,7 +449,9 @@ export const deleteTenancy = createServerFn({ method: 'POST' })
       .bind(data.tenancyId)
       .first<{ total: number }>()
     if ((charges?.total ?? 0) > 0) {
-      throw new InputError('Sewa ini sudah punya tagihan. Hapus tagihannya dulu.')
+      throw new InputError(
+        'Sewa ini sudah punya tagihan, termasuk yang ada di Sampah. Hapus permanen tagihannya dulu.',
+      )
     }
 
     const result = await db
