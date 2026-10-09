@@ -152,3 +152,37 @@ Map implementation, 2026-10-08: the legacy Google embed needs no key and
 geocodes the address. The supported Embed API needs a key and billing, which is
 the owner's decision. If he supplies a key, it goes in the environment and the
 section keeps its shape (ADR-0035).
+
+## CRUD audit before the soft-delete work — 2026-10-08
+
+The owner asked whether the CRUD is complete and correct. This is what the code
+held on that date, and what is missing.
+
+Complete, with the create, read, update, and delete paths in place:
+
+| Entity | Operations today |
+|---|---|
+| Kamar | list, create, update, delete |
+| Tipe Kamar | list, create, update, delete |
+| Penghuni | list, create, update, delete |
+| Sewa | list, start, renew, move, set move-out date, delete |
+| Halaman | list, get, preview, create, update, delete |
+| Galeri | list, upload, change alt, move, delete |
+| Pengaturan | get, update of the single row |
+
+Complete by design, not by omission:
+
+- Tagihan has no create of its own. A charge is created when a tenancy starts or
+  is extended, which is what ADR-0013 asks for. Amount, due date, and delete
+  exist.
+- Pembayaran has no update and no delete. A payment is voided with a reason
+  (ADR-0022). Permanent deletion of a voided payment is being added under
+  ADR-0036.
+- Pengaturan has one row, so it has no create and no delete.
+
+Missing on 2026-10-08, and being built under ADR-0036:
+
+1. An individual view for every record. Only Halaman has one.
+2. Soft delete for every record, with restore.
+3. A permanent delete as the alternative, with the guard message naming the
+   live rows that block it.
