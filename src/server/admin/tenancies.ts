@@ -120,7 +120,7 @@ async function requireRoom(roomId: number): Promise<{ number: string; price: num
 
 async function requireTenant(tenantId: number): Promise<{ name: string }> {
   const tenant = await getDb()
-    .prepare('SELECT name FROM tenants WHERE id = ?1')
+    .prepare('SELECT name FROM tenants WHERE id = ?1 AND deleted_at IS NULL')
     .bind(tenantId)
     .first<{ name: string }>()
   if (!tenant) throw new InputError('Penghuni tidak ditemukan.')
