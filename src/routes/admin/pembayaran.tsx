@@ -150,11 +150,16 @@ function PaymentsPage() {
                       <TableCell className="text-sm whitespace-nowrap">
                         {formatDay(payment.periodStart)} – {formatDay(payment.periodEnd)}
                       </TableCell>
-                      <TableCell className={voided ? 'line-through' : 'font-medium'}>
-                        {formatRupiah(payment.amount)}
+                      <TableCell>
+                        <div className="flex items-center gap-2 whitespace-nowrap">
+                          <span className={voided ? 'line-through' : 'font-medium'}>
+                            {formatRupiah(payment.amount)}
+                          </span>
+                          {voided ? <Badge variant="outline">Batal</Badge> : null}
+                        </div>
                       </TableCell>
                       <TableCell>{METHOD_LABEL[payment.method]}</TableCell>
-                      <TableCell className="max-w-[14rem] text-sm">
+                      <TableCell className="max-w-[14rem] truncate text-sm">
                         {voided ? (
                           <span>Dibatalkan: {payment.voidReason}</span>
                         ) : (
@@ -171,17 +176,14 @@ function PaymentsPage() {
                             Lihat
                           </Button>
                           {voided ? (
-                            <>
-                              <Badge variant="outline">Batal</Badge>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="text-destructive hover:text-destructive"
-                                onClick={() => setDialog({ kind: 'purge', payment })}
-                              >
-                                Hapus permanen
-                              </Button>
-                            </>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="text-destructive hover:text-destructive"
+                              onClick={() => setDialog({ kind: 'purge', payment })}
+                            >
+                              Hapus permanen
+                            </Button>
                           ) : (
                             <Button
                               size="sm"
