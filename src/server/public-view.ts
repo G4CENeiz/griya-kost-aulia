@@ -95,6 +95,7 @@ const SELECT_PUBLIC_ROOMS = `
            WHERE te.room_id = r.id AND te.move_out_date IS NULL) AS active_tenancies
   FROM rooms r
   JOIN room_types t ON t.id = r.room_type_id
+  WHERE r.deleted_at IS NULL AND t.deleted_at IS NULL
   ORDER BY r.number
 `
 
@@ -220,7 +221,7 @@ export async function loadRoomView(
                 AS active_tenancies
          FROM rooms r
          JOIN room_types t ON t.id = r.room_type_id
-        WHERE r.number = ?1`,
+        WHERE r.number = ?1 AND r.deleted_at IS NULL AND t.deleted_at IS NULL`,
     )
     .bind(number)
     .first<RoomRow>()

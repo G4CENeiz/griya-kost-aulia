@@ -111,7 +111,7 @@ function parseDay(value: unknown, label: string): string {
 
 async function requireRoom(roomId: number): Promise<{ number: string; price: number }> {
   const room = await getDb()
-    .prepare('SELECT number, price FROM rooms WHERE id = ?1')
+    .prepare('SELECT number, price FROM rooms WHERE id = ?1 AND deleted_at IS NULL')
     .bind(roomId)
     .first<{ number: string; price: number }>()
   if (!room) throw new InputError('Kamar tidak ditemukan.')
