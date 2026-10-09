@@ -28,11 +28,16 @@ table maps one to the other. Definitions are short and declarative.
 | Sisa | balance | Charge amount minus the sum of its non-voided payments. |
 | Pembayaran | `payment` | Money received against a charge. Has an amount, a date, a method, and a note. |
 | Metode | `method` | `cash` or `transfer`. |
-| Batal | void | A payment that is cancelled and kept, with a reason. Never deleted or edited (ADR-0022). |
+| Batal | void | A payment that is cancelled and kept, with a reason. Never edited. The void is the soft delete of a payment (ADR-0022, ADR-0036). |
 | Kuitansi | `receipt` | The PDF proof of one payment, with a unique number. |
 | Nomor kuitansi | `receipt.number` | The unique number of a receipt, assigned when the receipt row is created. |
 | Terbilang | amount in words | The amount written out in Indonesian, printed on the receipt. |
 | Dana jaminan | — | Not used. No deposit is collected (ADR-0023). |
+| Hapus | soft delete | Hiding a record: it leaves every list and every balance, and `deleted_at` holds the time. It is the default delete (ADR-0036). |
+| Sampah | trash | The section of a screen that lists its hidden records, with Pulihkan and Hapus permanen. There is no global trash screen. |
+| Pulihkan | restore | Clearing `deleted_at`, so the record returns to every list and balance. |
+| Hapus permanen | permanent delete | Removing the row. It is refused while a row still refers to the record, and it frees a unique value (ADR-0037). |
+| Lihat | item view | The individual view of one record: the record itself and the rows that refer to it. |
 | Halaman | `page` | A public page: a slug, a title, a Markdown body, and a published flag. |
 | Isi halaman | `page.body_markdown` | The page text, written in Markdown. The app places it between the room list and the gallery. |
 | Markdown | — | Plain text with symbols for headings, lists, bold, and links. Raw HTML renders as text, never as markup (ADR-0024). |

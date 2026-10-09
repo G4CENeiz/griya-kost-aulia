@@ -186,3 +186,33 @@ Missing on 2026-10-08, and being built under ADR-0036:
 2. Soft delete for every record, with restore.
 3. A permanent delete as the alternative, with the guard message naming the
    live rows that block it.
+
+## Soft delete and the individual views, built — 2026-10-09
+
+All three items above are done, one record group per commit. Each screen now has
+Lihat, a Sampah section with Pulihkan and Hapus permanen, and a permanent
+checkbox in its delete dialog.
+
+| Screen | Hidden with the record | Refused while |
+|---|---|---|
+| Penghuni | nothing else | a stay is running |
+| Tipe Kamar | nothing else | a live room uses the type |
+| Kamar | nothing else | the room is occupied |
+| Sewa | its charges | the stay is running |
+| Tagihan | nothing else | a live payment settles it |
+| Halaman | its gallery rows | never (the landing page is refused) |
+| Galeri | nothing else | never; the R2 object stays until the purge |
+| Pembayaran | the void is the hide | the purge needs a void, and a receipt refuses it |
+
+Notes that came out of the work:
+
+- ADR-0037: a deleted record keeps its number, name, or slug until it is purged.
+  Freeing the value would need a table rebuild, and D1 does not honour
+  `PRAGMA foreign_keys=OFF` inside a migration transaction. Measured on
+  2026-10-09 against the local database.
+- A permanent delete needs a query that ignores `deleted_at`, because the live
+  lookup cannot reach a row in the trash. This was a real bug on Penghuni and on
+  Tagihan, and both were fixed.
+- The demo data in `.wrangler/state` lost one voided payment (Rp 500.000, kamar
+  02, periode April 2027) to the purge test on 2026-10-09. The rest of the seed
+  is intact.
