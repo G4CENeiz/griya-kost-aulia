@@ -60,6 +60,7 @@ const SELECT_TENANTS = `
   FROM tenants t
   LEFT JOIN tenancies te
     ON te.tenant_id = t.id AND te.move_out_date IS NULL
+   AND te.deleted_at IS NULL
   LEFT JOIN rooms r ON r.id = te.room_id
   WHERE t.deleted_at IS NULL
   ORDER BY t.name
@@ -72,6 +73,7 @@ const SELECT_TENANT = `
   FROM tenants t
   LEFT JOIN tenancies te
     ON te.tenant_id = t.id AND te.move_out_date IS NULL
+   AND te.deleted_at IS NULL
   LEFT JOIN rooms r ON r.id = te.room_id
   WHERE t.id = ?1 AND t.deleted_at IS NULL
 `
@@ -183,7 +185,7 @@ export const getTenant = createServerFn({ method: 'GET' })
                   AS paid_amount
            FROM tenancies te
            JOIN rooms r ON r.id = te.room_id
-          WHERE te.tenant_id = ?1
+          WHERE te.tenant_id = ?1 AND te.deleted_at IS NULL
           ORDER BY te.start_date DESC`,
       )
       .bind(data.id)

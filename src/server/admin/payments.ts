@@ -62,7 +62,7 @@ const SELECT_PAYMENTS = `
   JOIN tenancies te ON te.id = c.tenancy_id
   JOIN rooms r ON r.id = te.room_id
   JOIN tenants tn ON tn.id = te.tenant_id
-  WHERE c.deleted_at IS NULL
+  WHERE c.deleted_at IS NULL AND te.deleted_at IS NULL
   ORDER BY p.date DESC, p.id DESC
 `
 
@@ -165,7 +165,10 @@ export const createPayment = createServerFn({ method: 'POST' })
                   WHERE p.charge_id = c.id AND p.voided_at IS NULL) AS paid_amount,
                 (SELECT COUNT(*) FROM payments p
                   WHERE p.charge_id = c.id AND p.voided_at IS NULL) AS payment_count
-           FROM charges c WHERE c.id = ?1 AND c.deleted_at IS NULL`,
+           FROM charges c
+          WHERE c.id = ?1 AND c.deleted_at IS NULL
+            AND (SELECT deleted_at FROM tenancies te WHERE te.id = c.tenancy_id)
+                IS NULL`,
       )
       .bind(data.chargeId)
       .first<{ amount: number; paid_amount: number; payment_count: number }>()

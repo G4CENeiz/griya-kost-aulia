@@ -8,7 +8,7 @@ import {
   planCharges,
 } from '#/lib/charge-plan'
 import { addDays, isIsoDay } from '#/lib/dates'
-import { changedNothing, getDb, isUniqueViolation } from '#/server/db'
+import { changedNothing, getDb, isUniqueViolation, nowMs } from '#/server/db'
 import { InputError, flag, readField, rowId } from '#/server/validation'
 
 /** Sewa: the association of one tenant with one room, one row per stay (ADR-0004). */
@@ -52,7 +52,7 @@ export type TenancyTerm = {
  * Active tenancies first, then the most recent. The paid amount ignores voided
  * payments in this one place, which is the rule ADR-0022 asks for.
  */
-const SELECT_TENANCIES = `
+const TENANCY_SELECT = `
   SELECT te.id, te.room_id, te.tenant_id, te.start_date, te.move_out_date,
          r.number AS room_number, tn.name AS tenant_name,
          tn.whatsapp_number,
@@ -72,8 +72,42 @@ const SELECT_TENANCIES = `
   FROM tenancies te
   JOIN rooms r ON r.id = te.room_id
   JOIN tenants tn ON tn.id = te.tenant_id
+`
+
+const SELECT_TENANCIES = `${TENANCY_SELECT}
+  WHERE te.deleted_at IS NULL
   ORDER BY (te.move_out_date IS NULL) DESC, te.start_date DESC, te.id DESC
 `
+
+/** One live stay by id, for the individual view. */
+const SELECT_TENANCY = `${TENANCY_SELECT}
+  WHERE te.id = ?1 AND te.deleted_at IS NULL
+`
+
+/** A stay in the trash (ADR-0036). */
+export type DeletedTenancy = {
+  id: number
+  roomNumber: string
+  tenantName: string
+  startDate: string
+  moveOutDate: string
+  deletedAt: number
+  chargeCount: number
+}
+
+/** The individual view: the stay, its charges, and the money against them. */
+export type TenancyDetail = {
+  tenancy: Tenancy
+  charges: {
+    id: number
+    periodStart: string
+    periodEnd: string
+    amount: number
+    dueDate: string
+    paidAmount: number
+    balance: number
+  }[]
+}
 
 function toTenancy(row: TenancyRow): Tenancy {
   return {
@@ -136,7 +170,8 @@ async function requireFree(roomId: number, tenantId: number): Promise<void> {
     .prepare(
       `SELECT r.number FROM tenancies te
          JOIN rooms r ON r.id = te.room_id
-        WHERE te.room_id = ?1 AND te.move_out_date IS NULL`,
+        WHERE te.room_id = ?1 AND te.move_out_date IS NULL
+          AND te.deleted_at IS NULL`,
     )
     .bind(roomId)
     .first<{ number: string }>()
@@ -148,7 +183,8 @@ async function requireFree(roomId: number, tenantId: number): Promise<void> {
     .prepare(
       `SELECT tn.name FROM tenancies te
          JOIN tenants tn ON tn.id = te.tenant_id
-        WHERE te.tenant_id = ?1 AND te.move_out_date IS NULL`,
+        WHERE te.tenant_id = ?1 AND te.move_out_date IS NULL
+          AND te.deleted_at IS NULL`,
     )
     .bind(tenantId)
     .first<{ name: string }>()
@@ -241,6 +277,82 @@ export const startTenancy = createServerFn({ method: 'POST' })
     return { id: row.id, chargeCount: charges.length }
   })
 
+export const listDeletedTenancies = createServerFn({ method: 'GET' }).handler(
+  async (): Promise<DeletedTenancy[]> => {
+    const { results } = await getDb()
+      .prepare(
+        `SELECT te.id, te.start_date, te.move_out_date, te.deleted_at,
+                r.number AS room_number, tn.name AS tenant_name,
+                (SELECT COUNT(*) FROM charges c WHERE c.tenancy_id = te.id)
+                  AS charge_count
+           FROM tenancies te
+           JOIN rooms r ON r.id = te.room_id
+           JOIN tenants tn ON tn.id = te.tenant_id
+          WHERE te.deleted_at IS NOT NULL
+          ORDER BY te.deleted_at DESC`,
+      )
+      .all<{
+        id: number
+        start_date: string
+        move_out_date: string | null
+        deleted_at: number
+        room_number: string
+        tenant_name: string
+        charge_count: number
+      }>()
+    return (results ?? []).map((row) => ({
+      id: row.id,
+      roomNumber: row.room_number,
+      tenantName: row.tenant_name,
+      startDate: row.start_date,
+      moveOutDate: row.move_out_date ?? '—',
+      deletedAt: row.deleted_at,
+      chargeCount: row.charge_count,
+    }))
+  },
+)
+
+export const getTenancy = createServerFn({ method: 'GET' })
+  .validator((input: unknown) => ({
+    tenancyId: rowId(readField(input, 'tenancyId'), 'Sewa'),
+  }))
+  .handler(async ({ data }): Promise<TenancyDetail> => {
+    const row = await getDb().prepare(SELECT_TENANCY).bind(data.tenancyId).first<TenancyRow>()
+    if (!row) throw new InputError('Sewa tidak ditemukan.')
+
+    const { results: chargeRows } = await getDb()
+      .prepare(
+        `SELECT c.id, c.period_start, c.period_end, c.amount, c.due_date,
+                (SELECT COALESCE(SUM(p.amount), 0) FROM payments p
+                  WHERE p.charge_id = c.id AND p.voided_at IS NULL) AS paid_amount
+           FROM charges c
+          WHERE c.tenancy_id = ?1 AND c.deleted_at IS NULL
+          ORDER BY c.period_start`,
+      )
+      .bind(data.tenancyId)
+      .all<{
+        id: number
+        period_start: string
+        period_end: string
+        amount: number
+        due_date: string
+        paid_amount: number
+      }>()
+
+    return {
+      tenancy: toTenancy(row),
+      charges: (chargeRows ?? []).map((charge) => ({
+        id: charge.id,
+        periodStart: charge.period_start,
+        periodEnd: charge.period_end,
+        amount: charge.amount,
+        dueDate: charge.due_date,
+        paidAmount: charge.paid_amount,
+        balance: charge.amount - charge.paid_amount,
+      })),
+    }
+  })
+
 /** Perpanjang: the charges of another term on the existing tenancy. */
 export const renewTenancy = createServerFn({ method: 'POST' })
   .validator((input: unknown) => ({
@@ -254,7 +366,7 @@ export const renewTenancy = createServerFn({ method: 'POST' })
         `SELECT te.id, te.start_date, te.move_out_date, r.price
              FROM tenancies te
              JOIN rooms r ON r.id = te.room_id
-            WHERE te.id = ?1`,
+            WHERE te.id = ?1 AND te.deleted_at IS NULL`,
       )
       .bind(data.tenancyId)
       .first<{
@@ -305,7 +417,7 @@ export const moveTenancy = createServerFn({ method: 'POST' })
     const tenancy = await db
       .prepare(
         `SELECT id, tenant_id, start_date, move_out_date
-             FROM tenancies WHERE id = ?1`,
+             FROM tenancies WHERE id = ?1 AND deleted_at IS NULL`,
       )
       .bind(data.tenancyId)
       .first<{
@@ -335,7 +447,7 @@ export const moveTenancy = createServerFn({ method: 'POST' })
       .prepare(
         `UPDATE tenancies
               SET move_out_date = ?1, updated_at = unixepoch() * 1000
-            WHERE id = ?2 AND move_out_date IS NULL`,
+            WHERE id = ?2 AND move_out_date IS NULL AND deleted_at IS NULL`,
       )
       .bind(data.moveOutDate, data.tenancyId)
       .run()
@@ -391,7 +503,7 @@ export const setMoveOutDate = createServerFn({ method: 'POST' })
   .handler(async ({ data }): Promise<{ id: number }> => {
     const db = getDb()
     const tenancy = await db
-      .prepare('SELECT start_date FROM tenancies WHERE id = ?1')
+      .prepare('SELECT start_date FROM tenancies WHERE id = ?1 AND deleted_at IS NULL')
       .bind(data.tenancyId)
       .first<{ start_date: string }>()
     if (!tenancy) throw new InputError('Sewa tidak ditemukan.')
@@ -404,7 +516,7 @@ export const setMoveOutDate = createServerFn({ method: 'POST' })
         .prepare(
           `SELECT tn.name AS tenant_name FROM tenancies te
              JOIN tenants tn ON tn.id = te.tenant_id
-            WHERE te.id = ?1`,
+            WHERE te.id = ?1 AND te.deleted_at IS NULL`,
         )
         .bind(data.tenancyId)
         .first<{ tenant_name: string }>()
@@ -413,6 +525,7 @@ export const setMoveOutDate = createServerFn({ method: 'POST' })
           .prepare(
             `SELECT te.id FROM tenancies te
               WHERE te.tenant_id = (SELECT tenant_id FROM tenancies WHERE id = ?1)
+                AND te.deleted_at IS NULL
                 AND te.id != ?1 AND te.move_out_date IS NULL`,
           )
           .bind(data.tenancyId)
@@ -427,7 +540,7 @@ export const setMoveOutDate = createServerFn({ method: 'POST' })
       .prepare(
         `UPDATE tenancies
             SET move_out_date = ?1, updated_at = unixepoch() * 1000
-          WHERE id = ?2`,
+          WHERE id = ?2 AND deleted_at IS NULL`,
       )
       .bind(data.moveOutDate, data.tenancyId)
       .run()
@@ -437,13 +550,58 @@ export const setMoveOutDate = createServerFn({ method: 'POST' })
     return { id: data.tenancyId }
   })
 
+/**
+ * A delete hides the stay and the charges of that stay; a permanent delete
+ * removes the row (ADR-0036). Both are refused while the stay is running,
+ * because a hidden stay that is running would leave the room occupied by a
+ * record no list can reach. The permanent delete is refused while any charge
+ * row, hidden or not, still refers to the stay.
+ */
 export const deleteTenancy = createServerFn({ method: 'POST' })
   .validator((input: unknown) => ({
     tenancyId: rowId(readField(input, 'tenancyId'), 'Sewa'),
-    confirm: flag(readField(input, 'confirm'), 'Konfirmasi'),
+    permanent: flag(readField(input, 'permanent'), 'Hapus permanen'),
   }))
-  .handler(async ({ data }): Promise<{ id: number }> => {
+  .handler(async ({ data }): Promise<{ id: number; permanent: boolean }> => {
     const db = getDb()
+    const tenancy = await db
+      .prepare(
+        `SELECT te.move_out_date, tn.name AS tenant_name
+           FROM tenancies te
+           JOIN tenants tn ON tn.id = te.tenant_id
+          WHERE te.id = ?1`,
+      )
+      .bind(data.tenancyId)
+      .first<{ move_out_date: string | null; tenant_name: string }>()
+    if (!tenancy) throw new InputError('Sewa tidak ditemukan.')
+
+    if (tenancy.move_out_date === null) {
+      throw new InputError(`Sewa ${tenancy.tenant_name} masih berjalan. Catat tanggal keluar dulu.`)
+    }
+
+    if (!data.permanent) {
+      const stamp = nowMs()
+      const result = await db
+        .prepare(
+          `UPDATE tenancies SET deleted_at = ?1, updated_at = ?1
+            WHERE id = ?2 AND deleted_at IS NULL`,
+        )
+        .bind(stamp, data.tenancyId)
+        .run()
+      if (changedNothing(result.meta)) {
+        throw new InputError('Sewa itu sudah ada di sampah.')
+      }
+      // The charges leave with the stay, so no balance keeps counting them.
+      await db
+        .prepare(
+          `UPDATE charges SET deleted_at = ?1, updated_at = ?1
+            WHERE tenancy_id = ?2 AND deleted_at IS NULL`,
+        )
+        .bind(stamp, data.tenancyId)
+        .run()
+      return { id: data.tenancyId, permanent: false }
+    }
+
     const charges = await db
       .prepare('SELECT COUNT(*) AS total FROM charges WHERE tenancy_id = ?1')
       .bind(data.tenancyId)
@@ -461,5 +619,32 @@ export const deleteTenancy = createServerFn({ method: 'POST' })
     if (changedNothing(result.meta)) {
       throw new InputError('Sewa tidak ditemukan.')
     }
+    return { id: data.tenancyId, permanent: true }
+  })
+
+/** Restoring a stay brings its charges back with it. */
+export const restoreTenancy = createServerFn({ method: 'POST' })
+  .validator((input: unknown) => ({
+    tenancyId: rowId(readField(input, 'tenancyId'), 'Sewa'),
+  }))
+  .handler(async ({ data }): Promise<{ id: number }> => {
+    const db = getDb()
+    const result = await db
+      .prepare(
+        `UPDATE tenancies SET deleted_at = NULL, updated_at = unixepoch() * 1000
+          WHERE id = ?1 AND deleted_at IS NOT NULL`,
+      )
+      .bind(data.tenancyId)
+      .run()
+    if (changedNothing(result.meta)) {
+      throw new InputError('Sewa itu tidak ada di sampah.')
+    }
+    await db
+      .prepare(
+        `UPDATE charges SET deleted_at = NULL, updated_at = unixepoch() * 1000
+          WHERE tenancy_id = ?1`,
+      )
+      .bind(data.tenancyId)
+      .run()
     return { id: data.tenancyId }
   })

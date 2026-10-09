@@ -82,7 +82,7 @@ const CHARGE_SELECT = `
   JOIN tenancies te ON te.id = c.tenancy_id
   JOIN rooms r ON r.id = te.room_id
   JOIN tenants tn ON tn.id = te.tenant_id
-  WHERE c.deleted_at IS NULL
+  WHERE c.deleted_at IS NULL AND te.deleted_at IS NULL
 `
 
 const ORDER_CHARGES = ' ORDER BY c.period_start, r.number'
@@ -119,7 +119,10 @@ const CHARGE_ROW_SELECT = `
 
 async function readChargeRow(chargeId: number): Promise<ChargeRow> {
   const row = await getDb()
-    .prepare(`${CHARGE_ROW_SELECT} WHERE c.id = ?1 AND c.deleted_at IS NULL`)
+    .prepare(
+      `${CHARGE_ROW_SELECT} WHERE c.id = ?1 AND c.deleted_at IS NULL
+         AND te.deleted_at IS NULL`,
+    )
     .bind(chargeId)
     .first<ChargeRow>()
   if (!row) throw new InputError('Tagihan tidak ditemukan.')

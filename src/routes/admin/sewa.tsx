@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useRouter } from '@tanstack/react-router'
 import { useServerFn } from '@tanstack/react-start'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
 import {
@@ -16,6 +16,7 @@ import {
 import { Badge } from '#/components/ui/badge'
 import { Button } from '#/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#/components/ui/card'
+import { Checkbox } from '#/components/ui/checkbox'
 import {
   Dialog,
   DialogContent,
@@ -53,11 +54,16 @@ import { addDays, todayIso } from '#/lib/dates'
 import { errorMessage } from '#/lib/errors'
 import { formatDay, formatRupiah } from '#/lib/format'
 import { listRooms } from '#/server/admin/rooms'
-import { listTenancies } from '#/server/admin/tenancies'
 import {
+  type DeletedTenancy,
+  type TenancyDetail,
   deleteTenancy,
+  getTenancy,
+  listDeletedTenancies,
+  listTenancies,
   moveTenancy,
   renewTenancy,
+  restoreTenancy,
   setMoveOutDate,
   startTenancy,
 } from '#/server/admin/tenancies'
@@ -67,6 +73,7 @@ export const Route = createFileRoute('/admin/sewa')({
   component: TenanciesPage,
   loader: async () => ({
     tenancies: await listTenancies(),
+    deleted: await listDeletedTenancies(),
     tenants: await listTenants(),
     rooms: await listRooms(),
   }),
@@ -77,7 +84,9 @@ type OpenDialog =
   | { kind: 'renew'; tenancyId: number; startDate: string; price: number }
   | { kind: 'move'; tenancyId: number; tenantName: string; roomId: number }
   | { kind: 'moveOut'; tenancyId: number; tenantName: string }
+  | { kind: 'view'; tenancyId: number; tenantName: string }
   | { kind: 'delete'; tenancyId: number; tenantName: string }
+  | { kind: 'purge'; tenancy: DeletedTenancy }
   | null
 
 const TERM_LABEL: Record<TermMonths, string> = {
@@ -94,9 +103,24 @@ const PLAN_LABEL: Record<ChargePlan, string> = {
 }
 
 function TenanciesPage() {
-  const { tenancies, tenants, rooms } = Route.useLoaderData()
+  const { tenancies, deleted, tenants, rooms } = Route.useLoaderData()
   const router = useRouter()
   const [dialog, setDialog] = useState<OpenDialog>(null)
+  const refresh = async () => {
+    setDialog(null)
+    await router.invalidate()
+  }
+  const restore = useServerFn(restoreTenancy)
+
+  async function restoreRow(tenancy: DeletedTenancy) {
+    try {
+      await restore({ data: { tenancyId: tenancy.id } })
+      toast.success('Sewa dipulihkan.')
+      await refresh()
+    } catch (error) {
+      toast.error(errorMessage(error, 'Sewa gagal dipulihkan.'))
+    }
+  }
 
   const freeTenants = tenants.filter((tenant) => !tenant.activeTenancy)
   const freeRooms = rooms.filter((room) => room.status !== 'occupied')
@@ -107,7 +131,8 @@ function TenanciesPage() {
         <div>
           <h1 className="text-2xl font-semibold">Sewa</h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            Satu baris per masa tinggal. Mulai sewa membuat semua tagihannya sekaligus.
+            Satu baris per masa tinggal. Mulai sewa membuat semua tagihannya sekaligus. Menghapus
+            menyembunyikan sewa beserta tagihannya.
           </p>
         </div>
         <Button onClick={() => setDialog({ kind: 'start' })}>Mulai sewa</Button>
@@ -207,6 +232,19 @@ function TenanciesPage() {
                         ) : null}
                         <Button
                           size="sm"
+                          variant="secondary"
+                          onClick={() =>
+                            setDialog({
+                              kind: 'view',
+                              tenancyId: tenancy.id,
+                              tenantName: tenancy.tenantName,
+                            })
+                          }
+                        >
+                          Lihat
+                        </Button>
+                        <Button
+                          size="sm"
                           variant="outline"
                           onClick={() =>
                             setDialog({
@@ -241,6 +279,61 @@ function TenanciesPage() {
           )}
         </CardContent>
       </Card>
+
+      {deleted.length > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Sampah</CardTitle>
+            <CardDescription>
+              {deleted.length} sewa terhapus, beserta tagihannya. Pulihkan untuk menghitungnya lagi.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Kamar</TableHead>
+                  <TableHead>Penghuni</TableHead>
+                  <TableHead>Periode</TableHead>
+                  <TableHead>Tagihan</TableHead>
+                  <TableHead className="text-right">Tindakan</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {deleted.map((tenancy) => (
+                  <TableRow key={tenancy.id} className="text-muted-foreground">
+                    <TableCell className="font-medium">{tenancy.roomNumber}</TableCell>
+                    <TableCell>{tenancy.tenantName}</TableCell>
+                    <TableCell className="text-sm whitespace-nowrap">
+                      {formatDay(tenancy.startDate)} – {formatDay(tenancy.moveOutDate)}
+                    </TableCell>
+                    <TableCell>{tenancy.chargeCount} tagihan</TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-1 whitespace-nowrap">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => void restoreRow(tenancy)}
+                        >
+                          Pulihkan
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-destructive hover:text-destructive"
+                          onClick={() => setDialog({ kind: 'purge', tenancy })}
+                        >
+                          Hapus permanen
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {dialog?.kind === 'start' ? (
         <StartTenancyDialog
@@ -293,18 +386,146 @@ function TenanciesPage() {
         />
       ) : null}
 
+      {dialog?.kind === 'view' ? (
+        <TenancyDetailDialog
+          tenancyId={dialog.tenancyId}
+          tenantName={dialog.tenantName}
+          onClose={() => setDialog(null)}
+        />
+      ) : null}
+
       {dialog?.kind === 'delete' ? (
         <DeleteTenancyDialog
           tenancyId={dialog.tenancyId}
           tenantName={dialog.tenantName}
           onClose={() => setDialog(null)}
-          onDeleted={async () => {
-            setDialog(null)
-            await router.invalidate()
-          }}
+          onDeleted={refresh}
+        />
+      ) : null}
+
+      {dialog?.kind === 'purge' ? (
+        <PurgeTenancyDialog
+          tenancy={dialog.tenancy}
+          onClose={() => setDialog(null)}
+          onPurged={refresh}
         />
       ) : null}
     </div>
+  )
+}
+
+/** The individual view: the stay, its charges, and the money against them. */
+function TenancyDetailDialog({
+  tenancyId,
+  tenantName,
+  onClose,
+}: {
+  tenancyId: number
+  tenantName: string
+  onClose: () => void
+}) {
+  const load = useServerFn(getTenancy)
+  const [detail, setDetail] = useState<TenancyDetail | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    void (async () => {
+      try {
+        const result = await load({ data: { tenancyId } })
+        if (alive) setDetail(result)
+      } catch (error) {
+        toast.error(errorMessage(error, 'Sewa gagal dimuat.'))
+      }
+    })()
+    return () => {
+      alive = false
+    }
+  }, [load, tenancyId])
+
+  const tenancy = detail?.tenancy
+
+  return (
+    <Dialog open onOpenChange={(open) => (open ? undefined : onClose())}>
+      <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Sewa {tenantName}</DialogTitle>
+          <DialogDescription>
+            {!tenancy
+              ? 'Memuat…'
+              : `Kamar ${tenancy.roomNumber} · ${formatDay(tenancy.startDate)} – ${
+                  tenancy.moveOutDate ? formatDay(tenancy.moveOutDate) : 'sekarang'
+                } · ${tenancy.isActive ? 'berjalan' : 'selesai'}`}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-4 py-4">
+          <div className="grid gap-1 text-sm">
+            <p>
+              <span className="text-muted-foreground">Tagihan: </span>
+              {tenancy ? `${tenancy.chargeCount} baris` : 'Memuat…'}
+            </p>
+            <p>
+              <span className="text-muted-foreground">Terbayar: </span>
+              {tenancy
+                ? `${formatRupiah(tenancy.paidAmount)} dari ${formatRupiah(tenancy.billedAmount)}`
+                : 'Memuat…'}
+            </p>
+            <p>
+              <span className="text-muted-foreground">WhatsApp: </span>
+              {tenancy?.tenantWhatsapp ?? '—'}
+            </p>
+          </div>
+
+          <div>
+            <p className="mb-2 text-sm font-medium">Tagihan sewa ini</p>
+            {!detail ? (
+              <p className="text-muted-foreground text-sm">Memuat…</p>
+            ) : detail.charges.length === 0 ? (
+              <p className="text-muted-foreground text-sm">Belum ada tagihan.</p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Periode</TableHead>
+                    <TableHead>Jatuh tempo</TableHead>
+                    <TableHead>Jumlah</TableHead>
+                    <TableHead>Terbayar</TableHead>
+                    <TableHead className="text-right">Sisa</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {detail.charges.map((charge) => (
+                    <TableRow key={charge.id}>
+                      <TableCell className="text-sm whitespace-nowrap">
+                        {formatDay(charge.periodStart)} – {formatDay(charge.periodEnd)}
+                      </TableCell>
+                      <TableCell className="text-sm whitespace-nowrap">
+                        {formatDay(charge.dueDate)}
+                      </TableCell>
+                      <TableCell>{formatRupiah(charge.amount)}</TableCell>
+                      <TableCell>{formatRupiah(charge.paidAmount)}</TableCell>
+                      <TableCell className="text-right">
+                        {charge.balance === 0 ? (
+                          <Badge variant="secondary">Lunas</Badge>
+                        ) : (
+                          formatRupiah(charge.balance)
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={onClose}>
+            Tutup
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -809,38 +1030,110 @@ function DeleteTenancyDialog({
   onDeleted: () => Promise<void>
 }) {
   const remove = useServerFn(deleteTenancy)
-  const [isDeleting, setIsDeleting] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const [permanent, setPermanent] = useState(false)
 
-  async function handleDelete() {
-    setIsDeleting(true)
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setIsSaving(true)
     try {
-      await remove({ data: { tenancyId, confirm: true } })
-      toast.success('Sewa dihapus.')
+      await remove({ data: { tenancyId, permanent } })
+      toast.success(permanent ? 'Sewa dihapus permanen.' : 'Sewa dipindah ke sampah.')
       await onDeleted()
     } catch (error) {
       toast.error(errorMessage(error, 'Sewa gagal dihapus.'))
-      onClose()
     } finally {
-      setIsDeleting(false)
+      setIsSaving(false)
     }
   }
 
   return (
     <AlertDialog open onOpenChange={(open) => (open ? undefined : onClose())}>
       <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Hapus sewa {tenantName}?</AlertDialogTitle>
-          <AlertDialogDescription>
-            Hanya sewa tanpa tagihan yang bisa dihapus. Untuk memperbaiki tanggal, ubah tanggalnya
-            saja.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Batal</AlertDialogCancel>
-          <AlertDialogAction onClick={handleDelete} disabled={isDeleting}>
-            {isDeleting ? 'Menghapus…' : 'Hapus'}
-          </AlertDialogAction>
-        </AlertDialogFooter>
+        <form onSubmit={handleSubmit}>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Hapus sewa {tenantName}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Hapus biasa menyembunyikan sewa beserta tagihannya, dan bisa dipulihkan dari Sampah.
+              Sewa yang masih berjalan ditolak; catat tanggal keluar dulu. Untuk memperbaiki
+              tanggal, ubah tanggalnya saja.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <div className="flex items-start gap-2 py-4">
+            <Checkbox
+              id="tenancy-permanent"
+              checked={permanent}
+              onCheckedChange={(checked) => setPermanent(checked === true)}
+            />
+            <div className="grid gap-1">
+              <Label htmlFor="tenancy-permanent">Hapus permanen</Label>
+              <p className="text-muted-foreground text-xs">
+                Barisnya dibuang dan tidak bisa dipulihkan. Ditolak bila masih ada baris tagihan,
+                termasuk yang ada di Sampah.
+              </p>
+            </div>
+          </div>
+
+          <AlertDialogFooter>
+            <AlertDialogCancel>Batal</AlertDialogCancel>
+            <AlertDialogAction type="submit" disabled={isSaving}>
+              {isSaving ? 'Menyimpan…' : permanent ? 'Hapus permanen' : 'Hapus'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </form>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
+}
+
+function PurgeTenancyDialog({
+  tenancy,
+  onClose,
+  onPurged,
+}: {
+  tenancy: DeletedTenancy
+  onClose: () => void
+  onPurged: () => Promise<void>
+}) {
+  const remove = useServerFn(deleteTenancy)
+  const [isSaving, setIsSaving] = useState(false)
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setIsSaving(true)
+    try {
+      await remove({ data: { tenancyId: tenancy.id, permanent: true } })
+      toast.success('Sewa dihapus permanen.')
+      await onPurged()
+    } catch (error) {
+      toast.error(errorMessage(error, 'Sewa gagal dihapus permanen.'))
+      onClose()
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  return (
+    <AlertDialog open onOpenChange={(open) => (open ? undefined : onClose())}>
+      <AlertDialogContent>
+        <form onSubmit={handleSubmit}>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Hapus permanen sewa {tenancy.tenantName}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Barisnya dibuang dan tidak bisa dipulihkan.
+              {tenancy.chargeCount > 0
+                ? ` Sewa ini punya ${tenancy.chargeCount} tagihan, jadi permintaan ini akan ditolak. Hapus permanen tagihannya dulu.`
+                : ''}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Batal</AlertDialogCancel>
+            <AlertDialogAction type="submit" disabled={isSaving}>
+              {isSaving ? 'Menghapus…' : 'Hapus permanen'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </form>
       </AlertDialogContent>
     </AlertDialog>
   )

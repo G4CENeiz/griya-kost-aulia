@@ -92,7 +92,8 @@ const SELECT_PUBLIC_ROOMS = `
   SELECT r.id, r.number, r.floor, r.price, r.is_unavailable,
          t.name AS room_type_name, t.facilities,
          (SELECT COUNT(*) FROM tenancies te
-           WHERE te.room_id = r.id AND te.move_out_date IS NULL) AS active_tenancies
+           WHERE te.room_id = r.id AND te.move_out_date IS NULL
+             AND te.deleted_at IS NULL) AS active_tenancies
   FROM rooms r
   JOIN room_types t ON t.id = r.room_type_id
   WHERE r.deleted_at IS NULL AND t.deleted_at IS NULL
@@ -219,7 +220,8 @@ export async function loadRoomView(
       `SELECT r.id, r.number, r.floor, r.price, r.is_unavailable,
               t.name AS room_type_name, t.facilities,
               (SELECT COUNT(*) FROM tenancies te
-                WHERE te.room_id = r.id AND te.move_out_date IS NULL)
+                WHERE te.room_id = r.id AND te.move_out_date IS NULL
+                  AND te.deleted_at IS NULL)
                 AS active_tenancies
          FROM rooms r
          JOIN room_types t ON t.id = r.room_type_id

@@ -156,7 +156,8 @@ export const getRoomType = createServerFn({ method: 'GET' })
       .prepare(
         `SELECT r.id, r.number, r.floor, r.price, r.is_unavailable,
                 (SELECT COUNT(*) FROM tenancies te
-                  WHERE te.room_id = r.id AND te.move_out_date IS NULL)
+                  WHERE te.room_id = r.id AND te.move_out_date IS NULL
+                    AND te.deleted_at IS NULL)
                   AS active_tenancies
            FROM rooms r
           WHERE r.room_type_id = ?1 AND r.deleted_at IS NULL

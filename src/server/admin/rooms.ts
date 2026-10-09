@@ -76,7 +76,8 @@ const SELECT_ROOMS = `
   SELECT r.id, r.number, r.floor, r.price, r.is_unavailable, r.notes,
          r.room_type_id, t.name AS room_type_name,
          (SELECT COUNT(*) FROM tenancies te
-           WHERE te.room_id = r.id AND te.move_out_date IS NULL) AS active_tenancies
+           WHERE te.room_id = r.id AND te.move_out_date IS NULL
+             AND te.deleted_at IS NULL) AS active_tenancies
   FROM rooms r
   JOIN room_types t ON t.id = r.room_type_id
   WHERE r.deleted_at IS NULL
@@ -87,7 +88,8 @@ const SELECT_ROOM = `
   SELECT r.id, r.number, r.floor, r.price, r.is_unavailable, r.notes,
          r.room_type_id, t.name AS room_type_name,
          (SELECT COUNT(*) FROM tenancies te
-           WHERE te.room_id = r.id AND te.move_out_date IS NULL) AS active_tenancies
+           WHERE te.room_id = r.id AND te.move_out_date IS NULL
+             AND te.deleted_at IS NULL) AS active_tenancies
   FROM rooms r
   JOIN room_types t ON t.id = r.room_type_id
   WHERE r.id = ?1 AND r.deleted_at IS NULL
