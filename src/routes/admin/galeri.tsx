@@ -11,7 +11,7 @@ import {
   SelectValue,
 } from '#/components/ui/select'
 import { LANDING_SLUG } from '#/lib/pages'
-import { listGalleryImages } from '#/server/admin/gallery'
+import { listDeletedGalleryImages, listGalleryImages } from '#/server/admin/gallery'
 import { listPages } from '#/server/admin/pages'
 
 /**
@@ -30,13 +30,14 @@ export const Route = createFileRoute('/admin/galeri')({
       pages,
       pageId,
       images: pageId ? await listGalleryImages({ data: { pageId } }) : [],
+      deleted: pageId ? await listDeletedGalleryImages({ data: { pageId } }) : [],
     }
   },
   component: GalleryPage,
 })
 
 function GalleryPage() {
-  const { pages, pageId, images } = Route.useLoaderData()
+  const { pages, pageId, images, deleted } = Route.useLoaderData()
   const navigate = useNavigate()
   const selected = pages.find((page) => page.id === pageId)
 
@@ -78,7 +79,12 @@ function GalleryPage() {
           </div>
 
           {pageId && selected ? (
-            <GalleryEditor key={pageId} pageId={pageId} initialImages={images} />
+            <GalleryEditor
+              key={pageId}
+              pageId={pageId}
+              initialImages={images}
+              initialDeleted={deleted}
+            />
           ) : (
             <p className="text-muted-foreground text-sm">Belum ada halaman.</p>
           )}

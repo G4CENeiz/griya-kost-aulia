@@ -8,10 +8,13 @@ import { Label } from '#/components/ui/label'
 import { errorMessage } from '#/lib/errors'
 import { toUploadableWebp } from '#/lib/image'
 import {
+  type DeletedGalleryImage,
   type GalleryImage,
   deleteGalleryImage,
+  listDeletedGalleryImages,
   listGalleryImages,
   moveGalleryImage,
+  restoreGalleryImage,
   updateGalleryAlt,
   uploadGalleryImage,
 } from '#/server/admin/gallery'
@@ -24,25 +27,35 @@ import {
 export function GalleryEditor({
   pageId,
   initialImages,
+  initialDeleted,
 }: {
   pageId: number
   initialImages: GalleryImage[]
+  initialDeleted: DeletedGalleryImage[]
 }) {
   const list = useServerFn(listGalleryImages)
+  const listDeleted = useServerFn(listDeletedGalleryImages)
   const upload = useServerFn(uploadGalleryImage)
   const removeImage = useServerFn(deleteGalleryImage)
+  const restoreImage = useServerFn(restoreGalleryImage)
   const moveImage = useServerFn(moveGalleryImage)
   const saveAlt = useServerFn(updateGalleryAlt)
   const [images, setImages] = useState<GalleryImage[]>(initialImages)
+  const [deleted, setDeleted] = useState<DeletedGalleryImage[]>(initialDeleted)
   const [isBusy, setIsBusy] = useState(false)
 
   const refresh = useCallback(async () => {
     try {
-      setImages(await list({ data: { pageId } }))
+      const [live, trashed] = await Promise.all([
+        list({ data: { pageId } }),
+        listDeleted({ data: { pageId } }),
+      ])
+      setImages(live)
+      setDeleted(trashed)
     } catch (error) {
       toast.error(errorMessage(error, 'Galeri gagal dimuat.'))
     }
-  }, [list, pageId])
+  }, [list, listDeleted, pageId])
 
   async function handleFiles(files: FileList | null) {
     if (!files || files.length === 0) return
@@ -161,7 +174,10 @@ export function GalleryEditor({
                   aria-label="Hapus"
                   disabled={isBusy}
                   onClick={() =>
-                    void run(() => removeImage({ data: { id: image.id } }), 'Gambar gagal dihapus.')
+                    void run(
+                      () => removeImage({ data: { id: image.id, permanent: false } }),
+                      'Gambar gagal dihapus.',
+                    )
                   }
                 >
                   Hapus
@@ -173,6 +189,56 @@ export function GalleryEditor({
       ) : (
         <p className="text-muted-foreground text-sm">Belum ada gambar.</p>
       )}
+
+      {deleted.length > 0 ? (
+        <div className="grid gap-2 rounded-lg border p-3">
+          <p className="text-sm font-medium">Sampah</p>
+          <p className="text-muted-foreground text-xs">
+            {deleted.length} gambar terhapus. Gambarnya masih tersimpan sampai dihapus permanen.
+          </p>
+          <ul className="grid gap-2">
+            {deleted.map((image) => (
+              <li key={image.id} className="flex items-center gap-2">
+                <img
+                  src={`/media/${image.r2Key}`}
+                  alt={image.alt}
+                  className="h-12 w-16 rounded border object-cover opacity-60"
+                />
+                <span className="text-muted-foreground flex-1 text-sm">
+                  {image.alt || 'Tanpa teks alternatif'}
+                </span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={isBusy}
+                  onClick={() =>
+                    void run(
+                      () => restoreImage({ data: { id: image.id } }),
+                      'Gambar gagal dipulihkan.',
+                    )
+                  }
+                >
+                  Pulihkan
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-destructive hover:text-destructive"
+                  disabled={isBusy}
+                  onClick={() =>
+                    void run(
+                      () => removeImage({ data: { id: image.id, permanent: true } }),
+                      'Gambar gagal dihapus permanen.',
+                    )
+                  }
+                >
+                  Hapus permanen
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
     </div>
   )
 }

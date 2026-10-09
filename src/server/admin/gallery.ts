@@ -1,8 +1,8 @@
 import { createServerFn } from '@tanstack/react-start'
 import { env } from 'cloudflare:workers'
 
-import { getDb } from '#/server/db'
-import { InputError, optionalText, readField, rowId } from '#/server/validation'
+import { changedNothing, getDb, nowMs } from '#/server/db'
+import { InputError, flag, optionalText, readField, rowId } from '#/server/validation'
 
 /** Galeri: one image of one page, stored in R2 with its row in D1 (ADR-0025). */
 export type GalleryImage = {
@@ -10,6 +10,14 @@ export type GalleryImage = {
   r2Key: string
   alt: string
   position: number
+}
+
+/** A gallery image in the trash (ADR-0036). */
+export type DeletedGalleryImage = {
+  id: number
+  r2Key: string
+  alt: string
+  deletedAt: number
 }
 
 const MAX_UPLOAD_BYTES = 5_000_000
@@ -21,9 +29,10 @@ function extensionFor(contentType: string): string {
   return 'webp'
 }
 
+/** A picture can only be added to a live page. */
 async function requirePage(pageId: number): Promise<void> {
   const page = await getDb()
-    .prepare('SELECT id FROM pages WHERE id = ?1')
+    .prepare('SELECT id FROM pages WHERE id = ?1 AND deleted_at IS NULL')
     .bind(pageId)
     .first<{ id: number }>()
   if (!page) throw new InputError('Halaman tidak ditemukan.')
@@ -37,7 +46,8 @@ export const listGalleryImages = createServerFn({ method: 'GET' })
     const { results } = await getDb()
       .prepare(
         `SELECT id, r2_key, alt, position FROM page_images
-          WHERE page_id = ?1 ORDER BY position, id`,
+          WHERE page_id = ?1 AND deleted_at IS NULL
+          ORDER BY position, id`,
       )
       .bind(data.pageId)
       .all<{ id: number; r2_key: string; alt: string; position: number }>()
@@ -91,7 +101,7 @@ export const uploadGalleryImage = createServerFn({ method: 'POST' })
     const last = await db
       .prepare(
         `SELECT COALESCE(MAX(position), -1) + 1 AS next
-           FROM page_images WHERE page_id = ?1`,
+           FROM page_images WHERE page_id = ?1 AND deleted_at IS NULL`,
       )
       .bind(data.pageId)
       .first<{ next: number }>()
@@ -118,7 +128,7 @@ export const updateGalleryAlt = createServerFn({ method: 'POST' })
     const result = await getDb()
       .prepare(
         `UPDATE page_images SET alt = ?1, updated_at = unixepoch() * 1000
-          WHERE id = ?2`,
+          WHERE id = ?2 AND deleted_at IS NULL`,
       )
       .bind(data.alt, data.id)
       .run()
@@ -128,12 +138,38 @@ export const updateGalleryAlt = createServerFn({ method: 'POST' })
     return { id: data.id }
   })
 
-/** Deleting removes the row and the object. */
+export const listDeletedGalleryImages = createServerFn({ method: 'GET' })
+  .validator((input: unknown) => ({
+    pageId: rowId(readField(input, 'pageId'), 'Halaman'),
+  }))
+  .handler(async ({ data }): Promise<DeletedGalleryImage[]> => {
+    const { results } = await getDb()
+      .prepare(
+        `SELECT id, r2_key, alt, deleted_at FROM page_images
+          WHERE page_id = ?1 AND deleted_at IS NOT NULL
+          ORDER BY deleted_at DESC, id`,
+      )
+      .bind(data.pageId)
+      .all<{ id: number; r2_key: string; alt: string; deleted_at: number }>()
+    return (results ?? []).map((row) => ({
+      id: row.id,
+      r2Key: row.r2_key,
+      alt: row.alt,
+      deletedAt: row.deleted_at,
+    }))
+  })
+
+/**
+ * A delete hides the picture; a permanent delete removes the row and the R2
+ * object (ADR-0036). The object stays while the row is in the trash, so a
+ * restore brings the picture back.
+ */
 export const deleteGalleryImage = createServerFn({ method: 'POST' })
   .validator((input: unknown) => ({
     id: rowId(readField(input, 'id'), 'Gambar'),
+    permanent: flag(readField(input, 'permanent'), 'Hapus permanen'),
   }))
-  .handler(async ({ data }): Promise<{ id: number }> => {
+  .handler(async ({ data }): Promise<{ id: number; permanent: boolean }> => {
     const db = getDb()
     const image = await db
       .prepare('SELECT r2_key FROM page_images WHERE id = ?1')
@@ -141,8 +177,43 @@ export const deleteGalleryImage = createServerFn({ method: 'POST' })
       .first<{ r2_key: string }>()
     if (!image) throw new InputError('Gambar tidak ditemukan.')
 
-    await db.prepare('DELETE FROM page_images WHERE id = ?1').bind(data.id).run()
+    if (!data.permanent) {
+      const result = await db
+        .prepare(
+          `UPDATE page_images SET deleted_at = ?1, updated_at = ?1
+            WHERE id = ?2 AND deleted_at IS NULL`,
+        )
+        .bind(nowMs(), data.id)
+        .run()
+      if (changedNothing(result.meta)) {
+        throw new InputError('Gambar itu sudah ada di sampah.')
+      }
+      return { id: data.id, permanent: false }
+    }
+
+    const result = await db.prepare('DELETE FROM page_images WHERE id = ?1').bind(data.id).run()
+    if (changedNothing(result.meta)) {
+      throw new InputError('Gambar tidak ditemukan.')
+    }
     await env.MEDIA.delete(image.r2_key)
+    return { id: data.id, permanent: true }
+  })
+
+export const restoreGalleryImage = createServerFn({ method: 'POST' })
+  .validator((input: unknown) => ({
+    id: rowId(readField(input, 'id'), 'Gambar'),
+  }))
+  .handler(async ({ data }): Promise<{ id: number }> => {
+    const result = await getDb()
+      .prepare(
+        `UPDATE page_images SET deleted_at = NULL, updated_at = unixepoch() * 1000
+          WHERE id = ?1 AND deleted_at IS NOT NULL`,
+      )
+      .bind(data.id)
+      .run()
+    if (changedNothing(result.meta)) {
+      throw new InputError('Gambar itu tidak ada di sampah.')
+    }
     return { id: data.id }
   })
 
@@ -161,13 +232,17 @@ export const moveGalleryImage = createServerFn({ method: 'POST' })
   .handler(async ({ data }): Promise<{ id: number }> => {
     const db = getDb()
     const image = await db
-      .prepare('SELECT page_id FROM page_images WHERE id = ?1')
+      .prepare('SELECT page_id FROM page_images WHERE id = ?1 AND deleted_at IS NULL')
       .bind(data.id)
       .first<{ page_id: number }>()
     if (!image) throw new InputError('Gambar tidak ditemukan.')
 
     const { results } = await db
-      .prepare(`SELECT id FROM page_images WHERE page_id = ?1 ORDER BY position, id`)
+      .prepare(
+        `SELECT id FROM page_images
+          WHERE page_id = ?1 AND deleted_at IS NULL
+          ORDER BY position, id`,
+      )
       .bind(image.page_id)
       .all<{ id: number }>()
     const order = (results ?? []).map((row) => row.id)

@@ -1,7 +1,8 @@
 import { createServerFn } from '@tanstack/react-start'
+import { env } from 'cloudflare:workers'
 
 import { LANDING_SLUG } from '#/lib/pages'
-import { changedNothing, getDb, isUniqueViolation } from '#/server/db'
+import { changedNothing, getDb, isUniqueViolation, nowMs } from '#/server/db'
 import { type PublicView, loadPublicView } from '#/server/public-view'
 import { InputError, flag, readField, rowId, text } from '#/server/validation'
 
@@ -24,6 +25,15 @@ type PageRow = {
   updated_at: number
 }
 
+/** A page in the trash (ADR-0036). */
+export type DeletedPage = {
+  id: number
+  slug: string
+  title: string
+  deletedAt: number
+  imageCount: number
+}
+
 export type PageInput = {
   slug: string
   title: string
@@ -43,6 +53,13 @@ function parseSlug(value: unknown): string {
     throw new InputError(`Alamat "${slug}" dipakai aplikasi. Pilih yang lain.`)
   }
   return slug
+}
+
+/** The slug is unique across the table, so a slug in the trash blocks a new row (ADR-0037). */
+function slugTaken(): InputError {
+  return new InputError(
+    'Alamat halaman itu sudah dipakai, termasuk oleh baris di Sampah. Pulihkan atau hapus permanen baris itu dulu.',
+  )
 }
 
 function parsePageInput(input: unknown): PageInput {
@@ -67,6 +84,7 @@ export const listPages = createServerFn({ method: 'GET' }).handler(
       .prepare(
         `SELECT id, slug, title, body_markdown, is_published, updated_at
            FROM pages
+          WHERE deleted_at IS NULL
           ORDER BY (slug = ?1) DESC, slug`,
       )
       .bind(LANDING_SLUG)
@@ -82,6 +100,34 @@ export const listPages = createServerFn({ method: 'GET' }).handler(
   },
 )
 
+export const listDeletedPages = createServerFn({ method: 'GET' }).handler(
+  async (): Promise<DeletedPage[]> => {
+    const { results } = await getDb()
+      .prepare(
+        `SELECT p.id, p.slug, p.title, p.deleted_at,
+                (SELECT COUNT(*) FROM page_images pi WHERE pi.page_id = p.id)
+                  AS image_count
+           FROM pages p
+          WHERE p.deleted_at IS NOT NULL
+          ORDER BY p.deleted_at DESC`,
+      )
+      .all<{
+        id: number
+        slug: string
+        title: string
+        deleted_at: number
+        image_count: number
+      }>()
+    return (results ?? []).map((row) => ({
+      id: row.id,
+      slug: row.slug,
+      title: row.title,
+      deletedAt: row.deleted_at,
+      imageCount: row.image_count,
+    }))
+  },
+)
+
 export const getPage = createServerFn({ method: 'GET' })
   .validator((input: unknown) => ({
     id: rowId(readField(input, 'id'), 'Halaman'),
@@ -90,7 +136,7 @@ export const getPage = createServerFn({ method: 'GET' })
     const row = await getDb()
       .prepare(
         `SELECT id, slug, title, body_markdown, is_published
-           FROM pages WHERE id = ?1`,
+           FROM pages WHERE id = ?1 AND deleted_at IS NULL`,
       )
       .bind(data.id)
       .first<PageRow>()
@@ -132,9 +178,7 @@ export const createPage = createServerFn({ method: 'POST' })
       if (!row) throw new Error('Halaman gagal disimpan.')
       return { id: row.id }
     } catch (error) {
-      if (isUniqueViolation(error, 'pages.slug')) {
-        throw new InputError('Alamat halaman itu sudah dipakai.')
-      }
+      if (isUniqueViolation(error, 'pages.slug')) throw slugTaken()
       throw error
     }
   })
@@ -147,7 +191,7 @@ export const updatePage = createServerFn({ method: 'POST' })
   .handler(async ({ data }): Promise<{ id: number }> => {
     const db = getDb()
     const current = await db
-      .prepare('SELECT slug FROM pages WHERE id = ?1')
+      .prepare('SELECT slug FROM pages WHERE id = ?1 AND deleted_at IS NULL')
       .bind(data.id)
       .first<{ slug: string }>()
     if (!current) throw new InputError('Halaman tidak ditemukan.')
@@ -163,7 +207,7 @@ export const updatePage = createServerFn({ method: 'POST' })
           `UPDATE pages
               SET slug = ?1, title = ?2, body_markdown = ?3, is_published = ?4,
                   updated_at = unixepoch() * 1000
-            WHERE id = ?5`,
+            WHERE id = ?5 AND deleted_at IS NULL`,
         )
         .bind(data.slug, data.title, data.bodyMarkdown, data.isPublished ? 1 : 0, data.id)
         .run()
@@ -172,18 +216,22 @@ export const updatePage = createServerFn({ method: 'POST' })
       }
       return { id: data.id }
     } catch (error) {
-      if (isUniqueViolation(error, 'pages.slug')) {
-        throw new InputError('Alamat halaman itu sudah dipakai.')
-      }
+      if (isUniqueViolation(error, 'pages.slug')) throw slugTaken()
       throw error
     }
   })
 
+/**
+ * A delete hides the page and its gallery; a permanent delete removes both and
+ * sweeps the R2 objects (ADR-0036). The landing page is refused either way: it
+ * is the address of the site, so the site cannot lose it.
+ */
 export const deletePage = createServerFn({ method: 'POST' })
   .validator((input: unknown) => ({
     id: rowId(readField(input, 'id'), 'Halaman'),
+    permanent: flag(readField(input, 'permanent'), 'Hapus permanen'),
   }))
-  .handler(async ({ data }): Promise<{ id: number }> => {
+  .handler(async ({ data }): Promise<{ id: number; permanent: boolean }> => {
     const db = getDb()
     const page = await db
       .prepare('SELECT slug FROM pages WHERE id = ?1')
@@ -194,8 +242,65 @@ export const deletePage = createServerFn({ method: 'POST' })
       throw new InputError('Halaman beranda tidak bisa dihapus.')
     }
 
-    // The gallery rows follow the page, and their objects are swept separately.
+    if (!data.permanent) {
+      const stamp = nowMs()
+      await db.batch([
+        db
+          .prepare(
+            `UPDATE pages SET deleted_at = ?1, updated_at = ?1
+              WHERE id = ?2 AND deleted_at IS NULL`,
+          )
+          .bind(stamp, data.id),
+        // The gallery leaves with the page, so no image of a hidden page can
+        // reach the public site.
+        db
+          .prepare(
+            `UPDATE page_images SET deleted_at = ?1, updated_at = ?1
+              WHERE page_id = ?2 AND deleted_at IS NULL`,
+          )
+          .bind(stamp, data.id),
+      ])
+      return { id: data.id, permanent: false }
+    }
+
+    const { results } = await db
+      .prepare('SELECT r2_key FROM page_images WHERE page_id = ?1')
+      .bind(data.id)
+      .all<{ r2_key: string }>()
     await db.prepare('DELETE FROM page_images WHERE page_id = ?1').bind(data.id).run()
-    await db.prepare('DELETE FROM pages WHERE id = ?1').bind(data.id).run()
+    const result = await db.prepare('DELETE FROM pages WHERE id = ?1').bind(data.id).run()
+    if (changedNothing(result.meta)) {
+      throw new InputError('Halaman tidak ditemukan.')
+    }
+    await Promise.all(
+      (results ?? []).map((row) => env.MEDIA.delete(row.r2_key).catch(() => undefined)),
+    )
+    return { id: data.id, permanent: true }
+  })
+
+/** Restoring a page brings its gallery back with it. */
+export const restorePage = createServerFn({ method: 'POST' })
+  .validator((input: unknown) => ({
+    id: rowId(readField(input, 'id'), 'Halaman'),
+  }))
+  .handler(async ({ data }): Promise<{ id: number }> => {
+    const db = getDb()
+    const result = await db
+      .prepare(
+        `UPDATE pages SET deleted_at = NULL, updated_at = unixepoch() * 1000
+          WHERE id = ?1 AND deleted_at IS NOT NULL`,
+      )
+      .bind(data.id)
+      .run()
+    if (changedNothing(result.meta)) {
+      throw new InputError('Halaman itu tidak ada di sampah.')
+    }
+    await db
+      .prepare(
+        `UPDATE page_images SET deleted_at = NULL, updated_at = unixepoch() * 1000
+          WHERE page_id = ?1`,
+      )
+      .bind(data.id)
+      .run()
     return { id: data.id }
   })

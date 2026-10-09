@@ -120,14 +120,15 @@ export async function loadPublicView(
     ? await db
         .prepare(
           `SELECT id, slug, title, body_markdown, is_published
-             FROM pages WHERE slug = ?1`,
+             FROM pages WHERE slug = ?1 AND deleted_at IS NULL`,
         )
         .bind(slug)
         .first<PageRow>()
     : await db
         .prepare(
           `SELECT id, slug, title, body_markdown, is_published
-             FROM pages WHERE slug = ?1 AND is_published = 1`,
+             FROM pages WHERE slug = ?1 AND is_published = 1
+               AND deleted_at IS NULL`,
         )
         .bind(slug)
         .first<PageRow>()
@@ -167,7 +168,8 @@ export async function loadPublicView(
     const { results } = await db
       .prepare(
         `SELECT r2_key, alt FROM page_images
-          WHERE page_id = ?1 ORDER BY position, id`,
+          WHERE page_id = ?1 AND deleted_at IS NULL
+          ORDER BY position, id`,
       )
       .bind(page.id)
       .all<{ r2_key: string; alt: string }>()
@@ -245,6 +247,7 @@ export async function loadRoomView(
          FROM page_images pi
          JOIN pages p ON p.id = pi.page_id
         WHERE p.slug = ?1 AND p.is_published = 1
+          AND p.deleted_at IS NULL AND pi.deleted_at IS NULL
         ORDER BY pi.position, pi.id`,
     )
     .bind(ROOMS_SLUG)

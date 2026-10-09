@@ -40,30 +40,53 @@ import {
 import { Textarea } from '#/components/ui/textarea'
 import { errorMessage } from '#/lib/errors'
 import { LANDING_SLUG } from '#/lib/pages'
-import { type GalleryImage, listGalleryImages } from '#/server/admin/gallery'
+import {
+  type DeletedGalleryImage,
+  type GalleryImage,
+  listDeletedGalleryImages,
+  listGalleryImages,
+} from '#/server/admin/gallery'
 import {
   type AdminPage,
+  type DeletedPage,
   createPage,
   deletePage,
   getPage,
   getPagePreview,
+  listDeletedPages,
   listPages,
+  restorePage,
   updatePage,
 } from '#/server/admin/pages'
 import type { PublicView } from '#/server/public-view'
 
 export const Route = createFileRoute('/admin/halaman')({
   component: PagesPage,
-  loader: () => listPages(),
+  loader: async () => ({
+    pages: await listPages(),
+    deleted: await listDeletedPages(),
+  }),
 })
 
 type OpenEditor = { kind: 'edit'; id: number } | { kind: 'create' } | null
 
 function PagesPage() {
-  const pages = Route.useLoaderData()
+  const { pages, deleted } = Route.useLoaderData()
   const router = useRouter()
   const [editor, setEditor] = useState<OpenEditor>(null)
   const [confirmedDelete, setConfirmedDelete] = useState<AdminPage | null>(null)
+  const [purgeTarget, setPurgeTarget] = useState<DeletedPage | null>(null)
+  const restore = useServerFn(restorePage)
+
+  async function restoreRow(page: DeletedPage) {
+    try {
+      await restore({ data: { id: page.id } })
+      toast.success('Halaman dipulihkan.')
+      await router.invalidate()
+    } catch (error) {
+      toast.error(errorMessage(error, 'Halaman gagal dipulihkan.'))
+    }
+  }
 
   return (
     <div className="grid gap-6">
@@ -72,6 +95,7 @@ function PagesPage() {
           <h1 className="text-2xl font-semibold">Halaman</h1>
           <p className="text-muted-foreground mt-1 text-sm">
             Satu halaman berisi satu badan tulisan Markdown. Tata letaknya ditentukan aplikasi.
+            Menghapus menyembunyikan halaman beserta galerinya.
           </p>
         </div>
         <Button onClick={() => setEditor({ kind: 'create' })}>Tambah halaman</Button>
@@ -135,6 +159,54 @@ function PagesPage() {
         </CardContent>
       </Card>
 
+      {deleted.length > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Sampah</CardTitle>
+            <CardDescription>
+              {deleted.length} halaman terhapus. Alamat halaman di sini masih memegang alamatnya
+              sampai dihapus permanen.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Judul</TableHead>
+                  <TableHead>Alamat</TableHead>
+                  <TableHead>Gambar</TableHead>
+                  <TableHead className="text-right">Tindakan</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {deleted.map((page) => (
+                  <TableRow key={page.id} className="text-muted-foreground">
+                    <TableCell className="font-medium">{page.title}</TableCell>
+                    <TableCell className="text-sm">/{page.slug}</TableCell>
+                    <TableCell>{page.imageCount} gambar</TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-1 whitespace-nowrap">
+                        <Button size="sm" variant="outline" onClick={() => void restoreRow(page)}>
+                          Pulihkan
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-destructive hover:text-destructive"
+                          onClick={() => setPurgeTarget(page)}
+                        >
+                          Hapus permanen
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      ) : null}
+
       {editor?.kind === 'edit' ? (
         <PageEditorDialog
           pageId={editor.id}
@@ -163,6 +235,15 @@ function PagesPage() {
           await router.invalidate()
         }}
       />
+
+      <PurgePageDialog
+        page={purgeTarget}
+        onClose={() => setPurgeTarget(null)}
+        onPurged={async () => {
+          setPurgeTarget(null)
+          await router.invalidate()
+        }}
+      />
     </div>
   )
 }
@@ -180,6 +261,7 @@ function PageEditorDialog({
   const loadPage = useServerFn(getPage)
   const loadPreview = useServerFn(getPagePreview)
   const loadGallery = useServerFn(listGalleryImages)
+  const loadDeletedGallery = useServerFn(listDeletedGalleryImages)
   const save = useServerFn(updatePage)
   const [isSaving, setIsSaving] = useState(false)
   const [form, setForm] = useState<{
@@ -191,6 +273,7 @@ function PageEditorDialog({
   } | null>(null)
   const [preview, setPreview] = useState<PublicView | null>(null)
   const [gallery, setGallery] = useState<GalleryImage[] | null>(null)
+  const [deletedGallery, setDeletedGallery] = useState<DeletedGalleryImage[] | null>(null)
 
   useEffect(() => {
     let alive = true
@@ -199,14 +282,16 @@ function PageEditorDialog({
         // The preview follows the saved slug: only the landing page carries
         // the room list, and the landing page's slug cannot be changed.
         const page = await loadPage({ data: { id: pageId } })
-        const [view, images] = await Promise.all([
+        const [view, images, trashed] = await Promise.all([
           loadPreview({ data: { slug: page.slug } }),
           loadGallery({ data: { pageId } }),
+          loadDeletedGallery({ data: { pageId } }),
         ])
         if (!alive) return
         setForm(page)
         setPreview(view)
         setGallery(images)
+        setDeletedGallery(trashed)
       } catch (error) {
         toast.error(errorMessage(error, 'Halaman gagal dimuat.'))
       }
@@ -214,7 +299,7 @@ function PageEditorDialog({
     return () => {
       alive = false
     }
-  }, [pageId, loadPage, loadPreview, loadGallery])
+  }, [pageId, loadPage, loadPreview, loadGallery, loadDeletedGallery])
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -306,7 +391,13 @@ function PageEditorDialog({
             </div>
 
             <div className="mb-6">
-              {gallery ? <GalleryEditor pageId={form.id} initialImages={gallery} /> : null}
+              {gallery && deletedGallery ? (
+                <GalleryEditor
+                  pageId={form.id}
+                  initialImages={gallery}
+                  initialDeleted={deletedGallery}
+                />
+              ) : null}
             </div>
 
             <DialogFooter className="mb-4">
@@ -438,38 +529,110 @@ function DeletePageDialog({
   onDeleted: () => Promise<void>
 }) {
   const remove = useServerFn(deletePage)
-  const [isDeleting, setIsDeleting] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const [permanent, setPermanent] = useState(false)
 
-  async function handleDelete() {
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
     if (!page) return
-    setIsDeleting(true)
+    setIsSaving(true)
     try {
-      await remove({ data: { id: page.id } })
-      toast.success('Halaman dihapus.')
+      await remove({ data: { id: page.id, permanent } })
+      toast.success(permanent ? 'Halaman dihapus permanen.' : 'Halaman dipindah ke sampah.')
       await onDeleted()
     } catch (error) {
       toast.error(errorMessage(error, 'Halaman gagal dihapus.'))
       onClose()
     } finally {
-      setIsDeleting(false)
+      setIsSaving(false)
     }
   }
 
   return (
     <AlertDialog open={page !== null} onOpenChange={(open) => (open ? undefined : onClose())}>
       <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Hapus halaman {page?.title}?</AlertDialogTitle>
-          <AlertDialogDescription>
-            Halaman dan baris galerinya dihapus. Halaman beranda tidak bisa dihapus.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Batal</AlertDialogCancel>
-          <AlertDialogAction onClick={handleDelete} disabled={isDeleting}>
-            {isDeleting ? 'Menghapus…' : 'Hapus'}
-          </AlertDialogAction>
-        </AlertDialogFooter>
+        <form onSubmit={handleSubmit}>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Hapus halaman {page?.title}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Hapus biasa menyembunyikan halaman dan seluruh gambarnya, dan bisa dipulihkan dari
+              Sampah. Halaman beranda tidak bisa dihapus.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <div className="flex items-start gap-2 py-4">
+            <Checkbox
+              id="page-permanent"
+              checked={permanent}
+              onCheckedChange={(checked) => setPermanent(checked === true)}
+            />
+            <div className="grid gap-1">
+              <Label htmlFor="page-permanent">Hapus permanen</Label>
+              <p className="text-muted-foreground text-xs">
+                Barisnya dan seluruh gambarnya dibuang, termasuk berkas gambar di penyimpanan. Tidak
+                bisa dipulihkan.
+              </p>
+            </div>
+          </div>
+
+          <AlertDialogFooter>
+            <AlertDialogCancel>Batal</AlertDialogCancel>
+            <AlertDialogAction type="submit" disabled={isSaving}>
+              {isSaving ? 'Menyimpan…' : permanent ? 'Hapus permanen' : 'Hapus'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </form>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
+}
+
+function PurgePageDialog({
+  page,
+  onClose,
+  onPurged,
+}: {
+  page: DeletedPage | null
+  onClose: () => void
+  onPurged: () => Promise<void>
+}) {
+  const remove = useServerFn(deletePage)
+  const [isSaving, setIsSaving] = useState(false)
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!page) return
+    setIsSaving(true)
+    try {
+      await remove({ data: { id: page.id, permanent: true } })
+      toast.success('Halaman dihapus permanen.')
+      await onPurged()
+    } catch (error) {
+      toast.error(errorMessage(error, 'Halaman gagal dihapus permanen.'))
+      onClose()
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  return (
+    <AlertDialog open={page !== null} onOpenChange={(open) => (open ? undefined : onClose())}>
+      <AlertDialogContent>
+        <form onSubmit={handleSubmit}>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Hapus permanen {page?.title}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Halaman, {page?.imageCount ?? 0} baris gambar, dan berkas gambarnya dibuang. Tidak
+              bisa dipulihkan. Alamatnya bebas dipakai lagi.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Batal</AlertDialogCancel>
+            <AlertDialogAction type="submit" disabled={isSaving}>
+              {isSaving ? 'Menghapus…' : 'Hapus permanen'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </form>
       </AlertDialogContent>
     </AlertDialog>
   )
