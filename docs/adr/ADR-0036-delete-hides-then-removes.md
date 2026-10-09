@@ -22,6 +22,11 @@ for "take this out of my lists".
   every list, the public site, every balance, and every availability count. It
   is allowed even when the record has history, because hiding a record cannot
   break the ledger.
+- **Hiding is refused while the record takes part in a live state**, because a
+  hidden record that a live screen still depends on is a state no screen can
+  repair: a tenant with a running stay, a room that is occupied, a room type
+  that a live room uses, a tenancy with unpaid charges. The message names the
+  live row that blocks the hide, and the owner ends that state first.
 - **Restore** clears `deleted_at`, and is what makes a soft delete safe.
 - **Permanent delete is the second act.** It removes the row, and it keeps the
   guards: a record that a live row still references is refused, with the count
